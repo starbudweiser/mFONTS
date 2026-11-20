@@ -1,0 +1,10 @@
+{
+  "id": "fr.stephan.mfonts.indesign",
+  "name": "mFONTS",
+  "version": "1.0.0",
+  "main": "index.html",
+  "manifestVersion": 6,
+  "host": { "app": "ID", "minVersion": "18.5.0" },
+  "requiredPermissions": { "network": { "domains": "all" }, "localFileSystem": "fullAccess" },
+  "entrypoints": [ { "type": "panel", "id": "mfonts", "label": { "default": "mFONTS" }, "minimumSize": { "width": 240, "height": 120 } } ]
+}

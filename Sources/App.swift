@@ -19,11 +19,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ n: Notification) {
         Self.shared = self
         if CommandLine.arguments.contains("--selftest-import") { selfTest(); return }
+        if CommandLine.arguments.contains("--selftest-clean") { Catalog.shared.deactivateAuto(); RunLoop.main.run(until: Date().addingTimeInterval(2)); print("auto désactivées"); exit(0) }
+        if CommandLine.arguments.contains("--selftest-plugins") {
+            for p in PluginInstaller.all { do { try PluginInstaller.install(p); print("installé", p.id, PluginInstaller.isInstalled(p)) } catch { print("erreur", p.id, error) } }
+            RunLoop.main.run(until: Date().addingTimeInterval(1.5)); exit(0)
+        }
         if let i = CommandLine.arguments.firstIndex(of: "--selftest-doc"), i + 1 < CommandLine.arguments.count { selfTestDoc(CommandLine.arguments[i + 1]); return }
         buildMainMenu()
         makeWindow()
         Self.applyPresence()
         AutoActivator.shared.applyWatch()
+        if PluginInstaller.anyInstalled { Bridge.shared.start() }
         timer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { _ in Task { @MainActor in Updater.shared.tick() } }
         Task { @MainActor in Updater.shared.tick() }
         window?.centerOnScreen()
@@ -32,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func application(_ app: NSApplication, open urls: [URL]) { AutoActivator.shared.openViaMFonts(urls) }
     @objc func openDocument() { AutoActivator.shared.chooseDocument() }
+    func applicationWillTerminate(_ n: Notification) { Bridge.shared.stop() }
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ app: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showMain(); return true }
 

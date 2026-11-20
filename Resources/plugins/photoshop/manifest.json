@@ -1,0 +1,10 @@
+{
+  "id": "fr.stephan.mfonts.photoshop",
+  "name": "mFONTS",
+  "version": "1.0.0",
+  "main": "index.html",
+  "manifestVersion": 6,
+  "host": { "app": "PS", "minVersion": "23.3.0", "data": { "apiVersion": 2, "loadEvent": "startup" } },
+  "requiredPermissions": { "network": { "domains": "all" }, "localFileSystem": "fullAccess" },
+  "entrypoints": [ { "type": "panel", "id": "mfonts", "label": { "default": "mFONTS" }, "minimumSize": { "width": 240, "height": 120 } } ]
+}

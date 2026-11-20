@@ -49,9 +49,16 @@ final class AutoActivator {
         if p.runModal() == .OK { openViaMFonts(p.urls) }
     }
 
-    private func whenIdle(_ block: @escaping () -> Void) {
+    func whenIdle(_ block: @escaping () -> Void) {
         if Catalog.shared.activating == nil { block() }
         else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self.whenIdle(block) } }
+    }
+
+    /// Appelé par le pont local quand une extension Adobe signale l'ouverture d'un document.
+    func activateFromPlugin(_ url: URL, app: String, reply: @escaping (Int, [String]) -> Void) {
+        Catalog.shared.activateFor(document: url, app: app) { [weak self] n, missing in
+            self?.whenIdle { self?.notify(doc: url.lastPathComponent, activated: n, missing: missing); reply(n, missing) }
+        }
     }
 
     // MARK: surveillance
@@ -97,7 +104,7 @@ final class AutoActivator {
 
     // MARK: notification
 
-    private func notify(doc: String, activated: Int, missing: [String]) {
+    func notify(doc: String, activated: Int, missing: [String]) {
         let mode = Self.notifyMode
         guard mode != "never", activated > 0 && mode == "always" || !missing.isEmpty else { return }
         let c = UNUserNotificationCenter.current()

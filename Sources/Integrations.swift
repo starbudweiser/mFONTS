@@ -46,6 +46,8 @@ enum Integrations {
 struct IntegrationsList: View {
     let items: [Integration]
     @State private var on = Integrations.enabled
+    @State private var tick = 0
+    @State private var failure: String?
     var onChange: (() -> Void)? = nil
 
     var body: some View {
@@ -54,20 +56,32 @@ struct IntegrationsList: View {
                 if i > 0 { Divider().opacity(0.4) }
                 HStack(spacing: 12) {
                     Image(nsImage: NSWorkspace.shared.icon(forFile: it.url.path)).resizable().frame(width: 28, height: 28)
+                    let plug = PluginInstaller.plugin(for: it.id)
+                    let installed = plug.map { PluginInstaller.isInstalled($0) } ?? false
                     VStack(alignment: .leading, spacing: 2) {
                         Text(it.name).font(.system(size: 13, weight: .medium))
-                        Text(L.t(it.kind == .adobe ? "int.adobe" : "int.watch")).font(.system(size: 11.5)).foregroundStyle(Theme.t2).lineLimit(2)
+                        Text(L.t(plug == nil ? (it.kind == .adobe ? "int.adobe" : "int.watch") : (installed ? "int.plugin.installed" : "int.plugin"))).font(.system(size: 11.5)).foregroundStyle(Theme.t2).lineLimit(3).fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 8)
-                    Toggle("", isOn: Binding(get: { on.contains(it.id) }, set: { v in
-                        if v { on.insert(it.id) } else { on.remove(it.id) }
-                        Integrations.enabled = on; onChange?()
-                    })).labelsHidden().toggleStyle(.switch).tint(Theme.acc)
+                    if let plug {
+                        if installed { Button(L.t("int.remove")) { PluginInstaller.uninstall(plug); tick += 1 }.fixedSize() }
+                        Button(L.t(installed ? "int.reinstall" : "int.install")) {
+                            do { try PluginInstaller.install(plug); failure = nil } catch { failure = error.localizedDescription }
+                            tick += 1
+                        }.buttonStyle(.borderedProminent).tint(Theme.acc).fixedSize()
+                    } else {
+                        Toggle("", isOn: Binding(get: { on.contains(it.id) }, set: { v in
+                            if v { on.insert(it.id) } else { on.remove(it.id) }
+                            Integrations.enabled = on; onChange?()
+                        })).labelsHidden().toggleStyle(.switch).tint(Theme.acc)
+                    }
                 }.padding(.vertical, 9).padding(.horizontal, 12)
             }
         }
         .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.r))
         .overlay(RoundedRectangle(cornerRadius: Theme.r).stroke(Theme.line, lineWidth: 1))
+        .id(tick)
+        if let failure { Text(failure).font(.system(size: 11.5)).foregroundStyle(.red).padding(.top, 6) }
     }
 }
 

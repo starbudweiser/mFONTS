@@ -30,6 +30,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             exit(0)
         }
+        if let i = CommandLine.arguments.firstIndex(of: "--selftest-find") {
+            let want = Array(CommandLine.arguments.dropFirst(i + 1))
+            Task { @MainActor in
+                let r = RemoteCatalog.shared; r.load(force: true)
+                while r.loading || r.families.isEmpty { try? await Task.sleep(nanoseconds: 300_000_000) }
+                var by: [String: Int] = [:]; for f in r.families { by[f.source, default: 0] += 1 }
+                print("index :", by, "· échecs", r.failed)
+                for w in want {
+                    guard let f = r.families.first(where: { $0.name.lowercased() == w.lowercased() }) else { print("introuvable :", w); continue }
+                    Downloads.shared.install(f)
+                }
+                while Downloads.shared.running > 0 { try? await Task.sleep(nanoseconds: 300_000_000) }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                for it in Downloads.shared.items { print(it.name, "·", it.source, "→", it.state, "· activée", it.activated, "·", it.fontIDs.count, "ids") }
+                print("polices du catalogue après :", Catalog.shared.fonts.filter { $0.lib == "downloaded" }.map { $0.ps })
+                exit(0)
+            }
+            return
+        }
+        if let i = CommandLine.arguments.firstIndex(of: "--selftest-web"), i + 1 < CommandLine.arguments.count, let u = URL(string: CommandLine.arguments[i + 1]) {
+            NSApp.setActivationPolicy(.accessory)
+            let h = WebHandle()
+            let host = NSHostingView(rootView: PortalWebView(url: u, handle: h) { f, hst in print("capté :", f.lastPathComponent, "depuis", hst); Downloads.shared.installCaught(f, host: hst) }.frame(width: 600, height: 400))
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+            w.contentView = host; w.orderBack(nil)
+            Task { @MainActor in
+                for _ in 0..<40 { try? await Task.sleep(nanoseconds: 500_000_000); if Downloads.shared.items.first.map({ !$0.state.isRunning }) == true { break } }
+                for it in Downloads.shared.items { print(it.name, "→", it.state) }
+                print("polices :", Catalog.shared.fonts.filter { $0.lib == "downloaded" }.map(\.ps))
+                exit(0)
+            }
+            return
+        }
+        if CommandLine.arguments.contains("--selftest-undo") {
+            Catalog.shared.setActive(Catalog.shared.fonts.filter { $0.lib == "downloaded" && $0.enabled }, on: false)
+            RunLoop.main.run(until: Date().addingTimeInterval(2)); print("téléchargées désactivées"); exit(0)
+        }
         if CommandLine.arguments.contains("--selftest-clean") { Catalog.shared.deactivateAuto(); RunLoop.main.run(until: Date().addingTimeInterval(2)); print("auto désactivées"); exit(0) }
         if CommandLine.arguments.contains("--selftest-plugins") {
             for p in PluginInstaller.all { do { try PluginInstaller.install(p); print("installé", p.id, PluginInstaller.isInstalled(p)) } catch { print("erreur", p.id, error) } }
@@ -48,13 +85,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if background { window?.orderOut(nil); NSApp.setActivationPolicy(.accessory); installStatusItem() }
         AutoActivator.shared.applyWatch()
         if PluginInstaller.anyInstalled { Bridge.shared.start() }
-        timer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { _ in Task { @MainActor in Updater.shared.tick() } }
-        Task { @MainActor in Updater.shared.tick() }
+        timer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { _ in Task { @MainActor in Updater.shared.tick(); PortalCatalog.shared.tick() } }
+        Task { @MainActor in Updater.shared.tick(); PortalCatalog.shared.tick() }
         window?.centerOnScreen()
         if !background { window?.present() }
     }
 
     func application(_ app: NSApplication, open urls: [URL]) { AutoActivator.shared.openViaMFonts(urls) }
+    @objc func toggleFinder() { showMain(); NotificationCenter.default.post(name: .toggleFinder, object: nil) }
     @objc func openDocument() { AutoActivator.shared.chooseDocument() }
     func applicationWillTerminate(_ n: Notification) { Bridge.shared.stop() }
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { false }
@@ -120,6 +158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         appItem.submenu = app
         let fileItem = NSMenuItem(); main.addItem(fileItem)
         let file = NSMenu(title: L.t("menu.file"))
+        let find = file.addItem(withTitle: L.t("menu.find"), action: #selector(toggleFinder), keyEquivalent: "f"); find.keyEquivalentModifierMask = [.command, .shift]; find.target = self
         file.addItem(withTitle: L.t("menu.openDoc"), action: #selector(openDocument), keyEquivalent: "o").target = self
         fileItem.submenu = file
         let editItem = NSMenuItem(); main.addItem(editItem)

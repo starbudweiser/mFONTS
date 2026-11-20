@@ -23,6 +23,8 @@ enum Theme {
     static let ok = dyn(0x30d158, 0x2fb36a)
 }
 
+extension Notification.Name { static let toggleFinder = Notification.Name("mfonts.toggleFinder") }
+
 enum Prompt {
     @MainActor static func text(_ title: String, _ message: String, _ initial: String = "") -> String? {
         let a = NSAlert()
@@ -59,6 +61,7 @@ struct MainView: View {
     @AppStorage("showInfo") var showInfo = true
     @State var showImport = false
     @State var showSize = false
+    @State var showFinder = false
     @AppStorage("integrationsAsked") var integrationsAsked = false
     @State var showWelcome = false
     @State var welcomeItems: [Integration] = []
@@ -87,6 +90,7 @@ struct MainView: View {
         HStack(spacing: 0) {
             SidebarView().frame(width: 230)
             Rectangle().fill(Theme.line).frame(width: 1)
+            ZStack(alignment: .trailing) {
             VStack(spacing: 0) {
                 toolbar
                 if showFilters { FilterBar() }
@@ -108,7 +112,10 @@ struct MainView: View {
                     Text(L.t("stat.shown", cat.visible.count))
                 }.font(.system(size: 12)).foregroundStyle(Theme.t2).padding(.horizontal, 14).padding(.vertical, 8)
             }
+            if showFinder { FindDrawer(isPresented: $showFinder).transition(.move(edge: .trailing)) }
+            }.clipped()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleFinder)) { _ in withAnimation(.easeOut(duration: 0.25)) { showFinder.toggle() } }
         .background(Theme.bg)
         .ignoresSafeArea(.container, edges: .top)
         .frame(width: 1180, height: 767)
@@ -185,6 +192,7 @@ struct MainView: View {
             } label: { Image(systemName: "arrow.up.arrow.down").font(.system(size: 14)).foregroundStyle(Theme.t2).frame(width: 28, height: 28) }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help(L.t("tb.sort"))
             icon("info.circle", on: showInfo, help: L.t("tb.info")) { showInfo.toggle() }
+            icon("globe", on: showFinder, help: L.t("tb.find")) { withAnimation(.easeOut(duration: 0.25)) { showFinder.toggle() } }
             icon("gearshape", help: L.t("menu.settings")) { AppDelegate.shared.showSettings() }
             Button(L.t("tb.import")) { showImport = true }.fixedSize()
             Button(L.t("tb.add")) { addFonts() }.buttonStyle(.borderedProminent).tint(Theme.acc).fixedSize()

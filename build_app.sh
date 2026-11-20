@@ -12,6 +12,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 swiftc -O -swift-version 5 -parse-as-library -target arm64-apple-macos15 -o "$APP/Contents/MacOS/mFONTS" Sources/*.swift
 cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp -R Resources/plugins "$APP/Contents/Resources/plugins"
+cp Resources/portals.json "$APP/Contents/Resources/portals.json"
 mkdir -p "$APP/Contents/Library/LaunchAgents"
 cat > "$APP/Contents/Library/LaunchAgents/$BID.agent.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>

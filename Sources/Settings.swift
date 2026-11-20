@@ -3,9 +3,9 @@ import SwiftUI
 import AppKit
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, auto, display, update
+    case general, auto, sources, display, update
     var id: String { rawValue }
-    var icon: String { ["general": "gearshape", "auto": "sparkles", "display": "textformat", "update": "arrow.down.circle"][rawValue]! }
+    var icon: String { ["general": "gearshape", "auto": "sparkles", "sources": "globe", "display": "textformat", "update": "arrow.down.circle"][rawValue]! }
 }
 
 /// Carte de lignes : titre de section au-dessus, lignes séparées par un filet.
@@ -58,6 +58,12 @@ struct SettingsView: View {
     @State var bgOn = BackgroundService.isEnabled
     @State var bgError: String?
     @ObservedObject var up = Updater.shared
+    @ObservedObject var portals = PortalCatalog.shared
+    @AppStorage("dlActivate") var dlActivate = true
+    @AppStorage("dlHideInstalled") var dlHide = true
+    @AppStorage("src_fontsource") var srcFS = true
+    @AppStorage("src_fontshare") var srcFSH = true
+    @AppStorage("src_squirrel") var srcSQ = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -127,6 +133,22 @@ struct SettingsView: View {
                     }.labelsHidden().fixedSize()
                 }
             }
+        case .sources:
+            SCard(L.t("set.src.title")) {
+                SRow(RemoteSource.fontsource.title, help: L.t("set.src.fontsource.help")) { Toggle("", isOn: $srcFS).labelsHidden().toggleStyle(.switch) }
+                SRow(RemoteSource.fontshare.title, help: L.t("set.src.fontshare.help")) { Toggle("", isOn: $srcFSH).labelsHidden().toggleStyle(.switch) }
+                SRow(RemoteSource.squirrel.title, help: L.t("set.src.squirrel.help"), divider: false) { Toggle("", isOn: $srcSQ).labelsHidden().toggleStyle(.switch) }
+            }
+            SCard(L.t("set.src.install")) {
+                SRow(L.t("set.src.activate"), help: L.t("set.src.activate.help")) { Toggle("", isOn: $dlActivate).labelsHidden().toggleStyle(.switch) }
+                SRow(L.t("set.src.hide"), divider: false) { Toggle("", isOn: $dlHide).labelsHidden().toggleStyle(.switch) }
+            }
+            SCard(L.t("set.portals.title")) {
+                SRow(L.t("set.portals.version", portals.version, portals.updated), help: portalStatus, divider: false) {
+                    Button(L.t("set.portals.update")) { Task { await portals.update() } }.fixedSize().disabled(portals.state == .updating)
+                }
+            }
+            Text(portals.portals.map(\.name).joined(separator: " · ")).font(.system(size: 11.5)).foregroundStyle(Theme.t2).fixedSize(horizontal: false, vertical: true)
         case .display:
             SCard(L.t("set.display")) {
                 SRow(L.t("set.sample"), help: L.t("set.sample.help")) {
@@ -150,6 +172,16 @@ struct SettingsView: View {
                     }
                 }
             }
+        }
+    }
+
+    var portalStatus: String {
+        switch portals.state {
+        case .idle: return L.t("set.portals.auto")
+        case .updating: return L.t("set.portals.updating")
+        case .upToDate: return L.t("set.portals.uptodate")
+        case .updated(let v): return L.t("set.portals.updated", v)
+        case .failed: return L.t("set.portals.failed")
         }
     }
 

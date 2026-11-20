@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "updated": "2026-11-20",
+  "portals": [
+    { "id": "google-fonts", "name": "Google Fonts", "url": "https://fonts.google.com", "kind": "api", "license": "ofl" },
+    { "id": "fontsource", "name": "Fontsource", "url": "https://fontsource.org/fonts", "kind": "api", "license": "ofl" },
+    { "id": "fontshare", "name": "Fontshare", "url": "https://www.fontshare.com", "kind": "api", "license": "commercial" },
+    { "id": "font-squirrel", "name": "Font Squirrel", "url": "https://www.fontsquirrel.com", "kind": "web", "license": "commercial" },
+    { "id": "open-foundry", "name": "Open Foundry", "url": "https://open-foundry.com", "kind": "web", "license": "ofl" },
+    { "id": "league-of-moveable-type", "name": "The League of Moveable Type", "url": "https://www.theleagueofmoveabletype.com", "kind": "web", "license": "ofl" },
+    { "id": "velvetyne", "name": "Velvetyne", "url": "https://velvetyne.fr", "kind": "web", "license": "ofl" },
+    { "id": "collletttivo", "name": "Collletttivo", "url": "https://www.collletttivo.it", "kind": "web", "license": "ofl" },
+    { "id": "font-library", "name": "Font Library", "url": "https://fontlibrary.org", "kind": "web", "license": "ofl" },
+    { "id": "omnibus-type", "name": "Omnibus-Type", "url": "https://www.omnibus-type.com", "kind": "web", "license": "ofl" },
+    { "id": "uncut", "name": "Uncut.wtf", "url": "https://uncut.wtf", "kind": "web", "license": "ofl" },
+    { "id": "lost-type", "name": "Lost Type Co-op", "url": "https://www.losttype.com", "kind": "web", "license": "mixed" },
+    { "id": "fontesk", "name": "Fontesk", "url": "https://fontesk.com", "kind": "web", "license": "mixed" },
+    { "id": "dafont", "name": "DaFont", "url": "https://www.dafont.com", "kind": "web", "license": "personal" },
+    { "id": "1001fonts", "name": "1001 Fonts", "url": "https://www.1001fonts.com", "kind": "web", "license": "mixed" },
+    { "id": "fontspace", "name": "FontSpace", "url": "https://www.fontspace.com", "kind": "web", "license": "mixed" }
+  ]
+}

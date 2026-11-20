@@ -425,7 +425,7 @@ final class Catalog: ObservableObject {
     }
 
     /// Ajoute des polices choisies à la main (fichiers ou dossiers).
-    func addFiles(_ urls: [URL]) -> Int {
+    func addFiles(_ urls: [URL], library: LibRec? = nil, extra: FontExtra? = nil) -> Int {
         var files: [URL] = []
         let exts: Set<String> = ["otf", "ttf", "ttc", "otc"]
         for u in urls {
@@ -436,8 +436,9 @@ final class Catalog: ObservableObject {
                 }
             } else if exts.contains(u.pathExtension.lowercased()) { files.append(u) }
         }
-        let lib = LibRec(id: "local", name: L.t("lib.added"), color: "#2C9ED6")
+        let lib = library ?? LibRec(id: "local", name: L.t("lib.added"), color: "#2C9ED6")
         var recs: [FontRec] = []
+        var extras: [String: FontExtra] = [:]
         for u in files {
             guard let ds = CTFontManagerCreateFontDescriptorsFromURL(u as CFURL) as? [CTFontDescriptor] else { continue }
             for d in ds {
@@ -448,12 +449,13 @@ final class Catalog: ObservableObject {
                 let traits = CTFontDescriptorCopyAttribute(d, kCTFontTraitsAttribute) as? [CFString: Any]
                 let w = (traits?[kCTFontWeightTrait] as? Double) ?? 0
                 let sym = (traits?[kCTFontSymbolicTrait] as? UInt32) ?? 0
+                if let extra { extras["local-" + ps] = extra }
                 recs.append(FontRec(id: "local-" + ps, lib: lib.id, family: fam, style: st, full: g(kCTFontDisplayNameAttribute), ps: ps, path: u.path,
                                     type: u.pathExtension.uppercased(), designer: "", weight: Int(((w + 1) * 5).rounded()), italic: sym & UInt32(CTFontSymbolicTraits.traitItalic.rawValue) != 0,
                                     enabled: false, starred: false, lastUsed: 0))
             }
         }
-        let payload = ImportPayload(libs: [lib], fonts: recs, extras: [:], collections: [], fontCollections: [], tags: [], fontTags: [], activeIDs: [], skipped: 0, errors: [])
+        let payload = ImportPayload(libs: [lib], fonts: recs, extras: extras, collections: [], fontCollections: [], tags: [], fontTags: [], activeIDs: [], skipped: 0, errors: [])
         _ = apply(payload, options: ImportOptions())
         return recs.count
     }

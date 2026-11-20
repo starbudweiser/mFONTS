@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func showSettings() {
         if settingsWindow == nil {
             let w = NSWindow(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)
-            w.title = L.t("menu.settings"); w.isReleasedWhenClosed = false
+            w.title = L.t("menu.settings"); w.isReleasedWhenClosed = false; w.backgroundColor = Theme.nsBg
             w.contentViewController = NSHostingController(rootView: SettingsView())
             if let c = w.contentView { w.setContentSize(c.fittingSize) }; w.centerOnScreen(); settingsWindow = w
         }

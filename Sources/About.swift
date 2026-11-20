@@ -72,6 +72,7 @@ enum About {
         let window = NSWindow(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = L.t("about.menu")
         window.isReleasedWhenClosed = false
+        window.backgroundColor = Theme.nsBg
         let content = NSView()
         content.addSubview(stack)
         NSLayoutConstraint.activate([

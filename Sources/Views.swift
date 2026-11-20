@@ -12,6 +12,8 @@ enum Theme {
             return NSColor(srgbRed: CGFloat((v >> 16) & 255) / 255, green: CGFloat((v >> 8) & 255) / 255, blue: CGFloat(v & 255) / 255, alpha: 1)
         })
     }
+    static let nsBg = NSColor(name: nil) { a in
+        a.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? NSColor(srgbRed: 0x13 / 255, green: 0x13 / 255, blue: 0x16 / 255, alpha: 1) : NSColor(srgbRed: 0xf1 / 255, green: 0xf1 / 255, blue: 0xf5 / 255, alpha: 1) }
     static let bg = dyn(0x131316, 0xf1f1f5)
     static let card = dyn(0x232327, 0xffffff)
     static let ctl = dyn(0x2c2c31, 0xe8e8ef)
@@ -404,27 +406,27 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section(L.t("set.activation")) { Toggle(L.t("set.persistent"), isOn: $persistent) }
+            Section(L.t("set.activation")) { Toggle(L.t("set.persistent"), isOn: $persistent).listRowBackground(Theme.card) }
             Section(L.t("set.presence")) {
                 Picker("", selection: $presence) {
                     Text(L.t("presence.both")).tag("both"); Text(L.t("presence.dock")).tag("dock"); Text(L.t("presence.menubar")).tag("menubar")
-                }.labelsHidden().pickerStyle(.radioGroup)
+                }.labelsHidden().pickerStyle(.radioGroup).listRowBackground(Theme.card)
             }
             Section(L.t("set.display")) {
-                TextField(L.t("set.sample"), text: $previewText)
-                HStack { Text(L.t("set.scale", Int(scale))); Slider(value: $scale, in: 50...200) }
+                TextField(L.t("set.sample"), text: $previewText).listRowBackground(Theme.card)
+                HStack { Text(L.t("set.scale", Int(scale))); Slider(value: $scale, in: 50...200) }.listRowBackground(Theme.card)
             }
             Section(L.t("upd.title")) {
-                Toggle(L.t("upd.auto"), isOn: $autoUpdate)
-                Text(L.t("upd.version", up.currentVersion)).foregroundStyle(.secondary)
+                Toggle(L.t("upd.auto"), isOn: $autoUpdate).listRowBackground(Theme.card)
+                Text(L.t("upd.version", up.currentVersion)).foregroundStyle(.secondary).listRowBackground(Theme.card)
                 HStack {
                     Button(L.t("upd.check")) { Task { await up.check() } }
                     if case .available(let v) = up.state { Button(L.t("upd.install", v)) { Task { await up.install() } }.buttonStyle(.borderedProminent) }
-                }
-                Text(statusText).font(.system(size: 12)).foregroundStyle(.secondary)
+                }.listRowBackground(Theme.card)
+                Text(statusText).font(.system(size: 12)).foregroundStyle(.secondary).listRowBackground(Theme.card)
             }
         }
-        .formStyle(.grouped).frame(width: 460, height: 520)
+        .formStyle(.grouped).scrollContentBackground(.hidden).background(Theme.bg).tint(Theme.acc).frame(width: 460, height: 640)
         .onChange(of: presence) { _, _ in AppDelegate.applyPresence() }
     }
 

@@ -41,8 +41,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let a = NSMutableAttributedString(string: "mFONTS", attributes: [.font: NSFont.boldSystemFont(ofSize: 15), .foregroundColor: NSColor.labelColor])
             a.addAttribute(.foregroundColor, value: NSColor(srgbRed: 0x2C / 255, green: 0x9E / 255, blue: 0xD6 / 255, alpha: 1), range: NSRange(location: 0, length: 1))
             return a }())
-        label.frame = NSRect(x: 0, y: 0, width: 90, height: 22)
-        let acc = NSTitlebarAccessoryViewController(); acc.view = label; acc.layoutAttribute = .left
+        label.sizeToFit()
+        let box = NSView(frame: NSRect(x: 0, y: 0, width: ceil(label.frame.width) + 12, height: 28))
+        label.setFrameOrigin(NSPoint(x: 0, y: floor((28 - label.frame.height) / 2) - 3))   // centré sur la hauteur des boutons
+        box.addSubview(label)
+        let acc = NSTitlebarAccessoryViewController(); acc.view = box; acc.layoutAttribute = .left
         w.addTitlebarAccessoryViewController(acc)
         w.isReleasedWhenClosed = false
         w.contentViewController = NSHostingController(rootView: MainView())

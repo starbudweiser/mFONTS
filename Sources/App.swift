@@ -30,34 +30,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             exit(0)
         }
-        if CommandLine.arguments.contains("--selftest-hit") {
-            NSApp.setActivationPolicy(.accessory)
-            makeWindow(); window?.orderFrontRegardless()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                guard let w = self.window, let root = w.contentView?.superview else { print("pas de fenêtre"); exit(1) }
-                func find(_ v: NSView) -> NSView? { if v is NoDragSlider.S { return v }; for c in v.subviews { if let f = find(c) { return f } }; return nil }
-                guard let sl = find(root) else { print("curseur introuvable"); exit(1) }
-                let p = sl.convert(NSPoint(x: sl.bounds.midX, y: sl.bounds.midY), to: nil)
-                let hit = root.hitTest(root.convert(p, from: nil))
-                var chain: [String] = []; var cur = hit; while let c = cur { chain.append(String(describing: type(of: c)) + (c.mouseDownCanMoveWindow ? "(déplace)" : "")); cur = c.superview }
-                print("curseur", p, "→", chain.joined(separator: " ‹ "))
-                // un point vide de la barre d'outils (entre le sélecteur et les icônes)
-                let q = NSPoint(x: 705, y: w.frame.height - 26)
-                let h2 = root.hitTest(root.convert(q, from: nil))
-                var c2: [String] = []; var cur2 = h2; while let c = cur2 { c2.append(String(describing: type(of: c)) + (c.mouseDownCanMoveWindow ? "(déplace)" : "")); cur2 = c.superview }
-                print("barre vide →", c2.joined(separator: " ‹ "))
-                // Glisser le curseur : sa valeur doit changer, la fenêtre ne doit pas bouger.
-                let o0 = w.frame.origin, v0 = (sl as! NoDragSlider.S).doubleValue
-                func ev(_ t: NSEvent.EventType, _ pt: NSPoint) -> NSEvent { NSEvent.mouseEvent(with: t, location: pt, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)! }
-                let wp = sl.convert(NSPoint(x: sl.bounds.midX, y: sl.bounds.midY), to: nil)
-                let ss = sl as! NoDragSlider.S; ss.mouseDown(with: ev(.leftMouseDown, wp))
-                for dx in stride(from: 4.0, through: 40.0, by: 4.0) { ss.mouseDragged(with: ev(.leftMouseDragged, NSPoint(x: wp.x + dx, y: wp.y))) }
-                w.sendEvent(ev(.leftMouseUp, NSPoint(x: wp.x + 40, y: wp.y)))
-                print("glisser : valeur", v0, "→", (sl as! NoDragSlider.S).doubleValue, "· fenêtre déplacée de", w.frame.origin.x - o0.x, w.frame.origin.y - o0.y)
-                exit(0)
-            }
-            return
-        }
         if CommandLine.arguments.contains("--selftest-clean") { Catalog.shared.deactivateAuto(); RunLoop.main.run(until: Date().addingTimeInterval(2)); print("auto désactivées"); exit(0) }
         if CommandLine.arguments.contains("--selftest-plugins") {
             for p in PluginInstaller.all { do { try PluginInstaller.install(p); print("installé", p.id, PluginInstaller.isInstalled(p)) } catch { print("erreur", p.id, error) } }
@@ -93,7 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func makeWindow() {
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1180, height: 767), styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView], backing: .buffered, defer: false)
         w.titlebarAppearsTransparent = true
-        w.isMovableByWindowBackground = false      // le curseur de taille et les boutons ne doivent jamais déplacer la fenêtre ; zones de déplacement : WindowDragArea
+        w.isMovableByWindowBackground = false
         w.title = "mFONTS"
         w.titleVisibility = .hidden
         let label = NSTextField(labelWithAttributedString: {

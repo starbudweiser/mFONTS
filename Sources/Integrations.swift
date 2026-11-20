@@ -89,14 +89,15 @@ struct IntegrationsList: View {
 /// Proposition au premier lancement.
 struct IntegrationsWelcome: View {
     @Binding var isPresented: Bool
-    let items: [Integration]
+    @State private var items = Integrations.detect()
     @State private var bg = BackgroundService.isEnabled
     var body: some View {
         VStack(spacing: 14) {
             Image(systemName: "sparkles").font(.system(size: 28)).foregroundStyle(Theme.acc)
             Text(L.t("int.welcome.title")).font(.system(size: 17, weight: .bold)).multilineTextAlignment(.center)
-            Text(L.t("int.welcome.text")).font(.system(size: 12.5)).foregroundStyle(Theme.t2).multilineTextAlignment(.center)
-            ScrollView { IntegrationsList(items: items) }.frame(maxHeight: 300)
+            Text(L.t("int.welcome.text")).font(.system(size: 12.5)).foregroundStyle(Theme.t2).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            if items.count > 6 { ScrollView { IntegrationsList(items: items) }.frame(height: 6 * 52) }
+            else { IntegrationsList(items: items) }
             if BackgroundService.available {
                 Toggle(L.t("svc.welcome"), isOn: Binding(get: { bg }, set: { v in BackgroundService.set(v); bg = BackgroundService.isEnabled || BackgroundService.needsApproval }))
                     .toggleStyle(.switch).tint(Theme.acc).font(.system(size: 12.5))

@@ -23,64 +23,6 @@ enum Theme {
     static let ok = dyn(0x30d158, 0x2fb36a)
 }
 
-/// Zone qui déplace la fenêtre quand on la tire (le reste de la fenêtre ne la déplace pas : curseurs et boutons restent utilisables).
-struct WindowDragArea: NSViewRepresentable {
-    final class V: NSView { override var mouseDownCanMoveWindow: Bool { true } }
-    func makeNSView(context: Context) -> NSView { V() }
-    func updateNSView(_ v: NSView, context: Context) {}
-}
-
-/// Curseur dessiné et géré par nos soins : dans la zone de la barre de titre, ni `Slider` ni `NSSlider` (rendu SwiftUI en interne)
-/// n'empêchaient la fenêtre de glisser avec eux. Ici la vue refuse de déplacer la fenêtre et traite elle-même la souris.
-struct NoDragSlider: NSViewRepresentable {
-    @Binding var value: Double
-    let range: ClosedRange<Double>
-
-    final class S: NSView {
-        var value = 0.0 { didSet { needsDisplay = true } }
-        var lo = 0.0, hi = 1.0
-        var onChange: (Double) -> Void = { _ in }
-        var doubleValue: Double { value }
-        override var mouseDownCanMoveWindow: Bool { false }
-        override var acceptsFirstResponder: Bool { false }
-        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-        private var inset: CGFloat { 8 }
-        override func draw(_ r: NSRect) {
-            let w = bounds.width - 2 * inset, midY = bounds.midY
-            let frac = CGFloat((value - lo) / max(hi - lo, 0.0001))
-            let x = inset + w * min(max(frac, 0), 1)
-            let track = NSRect(x: inset, y: midY - 2, width: w, height: 4)
-            NSColor.tertiaryLabelColor.withAlphaComponent(0.35).setFill()
-            NSBezierPath(roundedRect: track, xRadius: 2, yRadius: 2).fill()
-            NSColor(srgbRed: 0x2C / 255, green: 0x9E / 255, blue: 0xD6 / 255, alpha: 1).setFill()
-            NSBezierPath(roundedRect: NSRect(x: inset, y: midY - 2, width: x - inset, height: 4), xRadius: 2, yRadius: 2).fill()
-            let knob = NSRect(x: x - 7, y: midY - 7, width: 14, height: 14)
-            NSGraphicsContext.saveGraphicsState()
-            let sh = NSShadow(); sh.shadowColor = NSColor.black.withAlphaComponent(0.4); sh.shadowBlurRadius = 2; sh.shadowOffset = NSSize(width: 0, height: -1); sh.set()
-            NSColor.white.setFill(); NSBezierPath(ovalIn: knob).fill()
-            NSGraphicsContext.restoreGraphicsState()
-        }
-        private func update(_ e: NSEvent) {
-            let x = convert(e.locationInWindow, from: nil).x
-            let frac = min(max(Double((x - inset) / max(bounds.width - 2 * inset, 1)), 0), 1)
-            let v = (lo + (hi - lo) * frac).rounded()
-            if v != value { value = v; onChange(v) }
-        }
-        override func mouseDown(with e: NSEvent) { update(e) }
-        override func mouseDragged(with e: NSEvent) { update(e) }
-    }
-
-    func makeNSView(context: Context) -> S {
-        let s = S(); s.lo = range.lowerBound; s.hi = range.upperBound; s.value = value
-        s.onChange = { v in DispatchQueue.main.async { self.value = v } }
-        return s
-    }
-    func updateNSView(_ s: S, context: Context) {
-        s.onChange = { v in DispatchQueue.main.async { self.value = v } }
-        if abs(s.value - value) > 0.01 { s.value = value }
-    }
-}
-
 enum Prompt {
     @MainActor static func text(_ title: String, _ message: String, _ initial: String = "") -> String? {
         let a = NSAlert()
@@ -116,6 +58,7 @@ struct MainView: View {
     @AppStorage("showFilters") var showFilters = true
     @AppStorage("showInfo") var showInfo = true
     @State var showImport = false
+    @State var showSize = false
     @AppStorage("integrationsAsked") var integrationsAsked = false
     @State var showWelcome = false
     @State var welcomeItems: [Integration] = []
@@ -170,11 +113,11 @@ struct MainView: View {
         .ignoresSafeArea(.container, edges: .top)
         .frame(width: 1180, height: 767)
         .sheet(isPresented: $showImport) { ImportView(isPresented: $showImport) }
-        .sheet(isPresented: $showWelcome) { IntegrationsWelcome(isPresented: $showWelcome, items: welcomeItems) }
+        .sheet(isPresented: $showWelcome) { IntegrationsWelcome(isPresented: $showWelcome) }
         .onAppear {
             guard !integrationsAsked else { return }
             let found = Integrations.detect()
-            if found.isEmpty { integrationsAsked = true } else { welcomeItems = found; DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { showWelcome = true } }
+            if found.isEmpty { integrationsAsked = true } else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { showWelcome = true } }
         }
         .alert("mFONTS", isPresented: Binding(get: { cat.lastError != nil }, set: { if !$0 { cat.lastError = nil } })) {
             Button(L.t("btn.ok")) {}
@@ -191,9 +134,26 @@ struct MainView: View {
         HStack(spacing: 10) {
             icon("chevron.left", enabled: cat.canBack, help: L.t("tb.back")) { cat.go(-1) }
             icon("chevron.right", enabled: cat.canForward, help: L.t("tb.forward")) { cat.go(1) }
-            Text("Aa").font(.system(size: 12)).foregroundStyle(Theme.t2).padding(.leading, 6)
-            NoDragSlider(value: $scale, range: 50...200).frame(width: 110, height: 20).help(L.t("set.scale", Int(scale)))
-            Text("\(Int(scale))").font(.system(size: 12)).foregroundStyle(Theme.t2).monospacedDigit().frame(width: 28, alignment: .leading)
+            Button { showSize.toggle() } label: {
+                HStack(spacing: 6) {
+                    Text("Aa").font(.system(size: 12, weight: .semibold))
+                    Text("\(Int(scale))").font(.system(size: 12)).monospacedDigit().frame(width: 28, alignment: .leading)
+                }.foregroundStyle(showSize ? Theme.acc : Theme.t2)
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(showSize ? Theme.acc.opacity(0.18) : Theme.ctl, in: RoundedRectangle(cornerRadius: Theme.r))
+            }.buttonStyle(.plain).help(L.t("set.scale", Int(scale)))
+            // Le curseur est dans une fenêtre à part : dans la barre d'outils, le système capte tout glissement pour déplacer la fenêtre.
+            .popover(isPresented: $showSize, arrowEdge: .bottom) {
+                VStack(spacing: 10) {
+                    HStack { Text(L.t("set.scale.title")).font(.system(size: 12, weight: .semibold)); Spacer(); Text("\(Int(scale))").monospacedDigit().foregroundStyle(Theme.t2) }
+                    HStack(spacing: 8) {
+                        Text("Aa").font(.system(size: 11)).foregroundStyle(Theme.t2)
+                        Slider(value: $scale, in: 50...200).tint(Theme.acc)
+                        Text("Aa").font(.system(size: 18)).foregroundStyle(Theme.t2)
+                    }
+                    Button(L.t("size.reset")) { scale = 100 }.buttonStyle(.plain).font(.system(size: 11.5)).foregroundStyle(Theme.acc)
+                }.padding(14).frame(width: 260)
+            }
             Menu {
                 ForEach(["document", "alphabet", "pangram", "name", "custom"], id: \.self) { m in
                     Button { mode = m } label: { if mode == m { Label(L.t("doc." + m), systemImage: "checkmark") } else { Text(L.t("doc." + m)) } }
@@ -228,7 +188,7 @@ struct MainView: View {
             icon("gearshape", help: L.t("menu.settings")) { AppDelegate.shared.showSettings() }
             Button(L.t("tb.import")) { showImport = true }.fixedSize()
             Button(L.t("tb.add")) { addFonts() }.buttonStyle(.borderedProminent).tint(Theme.acc).fixedSize()
-        }.padding(.horizontal, 14).frame(height: 52).background(WindowDragArea())
+        }.padding(.horizontal, 14).frame(height: 52)
     }
 
     func addFonts() {
@@ -378,7 +338,6 @@ struct SidebarView: View {
             }.padding(.horizontal, 10).padding(.bottom, 10).padding(.top, 46)
         }
         .background(Theme.side)
-        .overlay(alignment: .top) { WindowDragArea().frame(height: 46) }
         .font(.system(size: 13))
     }
 }

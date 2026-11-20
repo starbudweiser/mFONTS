@@ -94,14 +94,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func application(_ app: NSApplication, open urls: [URL]) { AutoActivator.shared.openViaMFonts(urls) }
     @objc func toggleFinder() { showMain(); NotificationCenter.default.post(name: .toggleFinder, object: nil) }
     @objc func openDocument() { AutoActivator.shared.chooseDocument() }
-    func applicationWillTerminate(_ n: Notification) { Bridge.shared.stop() }
+    func applicationWillTerminate(_ n: Notification) {
+        Bridge.shared.stop()
+        saveWindowSize()
+    }
+    /// Taille de la fenêtre retenue à la fermeture de l'appli (la position, elle, est recentrée à chaque lancement).
+    func saveWindowSize() {
+        guard let w = window, !w.styleMask.contains(.fullScreen) else { return }
+        let sz = w.contentLayoutRect.size
+        guard sz.width >= 1100, sz.height >= 640 else { return }
+        UserDefaults.standard.set(Double(sz.width), forKey: "winW"); UserDefaults.standard.set(Double(sz.height), forKey: "winH")
+    }
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ app: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showMain(); return true }
 
     // MARK: fenêtres
 
     func makeWindow() {
-        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1180, height: 767), styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView], backing: .buffered, defer: false)
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1180, height: 767), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         w.titlebarAppearsTransparent = true
         w.isMovableByWindowBackground = false
         w.title = "mFONTS"
@@ -118,7 +128,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         w.isReleasedWhenClosed = false
         w.contentViewController = NSHostingController(rootView: MainView())
-        w.setContentSize(NSSize(width: 1180, height: 767))
+        w.minSize = NSSize(width: 1100, height: 640)
+        // Taille retenue d'un lancement à l'autre (limitée à l'écran) ; la position, elle, est toujours recentrée.
+        let d = UserDefaults.standard
+        let sw = CGFloat(d.double(forKey: "winW")), sh = CGFloat(d.double(forKey: "winH"))
+        w.setContentSize(NSSize(width: sw >= 1100 ? sw : 1180, height: sh >= 640 ? sh : 767))
+        NotificationCenter.default.addObserver(forName: NSWindow.didEndLiveResizeNotification, object: w, queue: .main) { n in
+            if let win = n.object as? NSWindow { let sz = win.contentLayoutRect.size; UserDefaults.standard.set(Double(sz.width), forKey: "winW"); UserDefaults.standard.set(Double(sz.height), forKey: "winH") }
+        }
         w.centerOnScreen()
         window = w
     }

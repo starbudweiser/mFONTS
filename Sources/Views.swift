@@ -118,7 +118,7 @@ struct MainView: View {
         .onReceive(NotificationCenter.default.publisher(for: .toggleFinder)) { _ in withAnimation(.easeOut(duration: 0.25)) { showFinder.toggle() } }
         .background(Theme.bg)
         .ignoresSafeArea(.container, edges: .top)
-        .frame(width: 1180, height: 767)
+        .frame(minWidth: 1100, minHeight: 640)
         .sheet(isPresented: $showImport) { ImportView(isPresented: $showImport) }
         .sheet(isPresented: $showWelcome) { IntegrationsWelcome(isPresented: $showWelcome) }
         .onAppear {

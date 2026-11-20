@@ -1,0 +1,2 @@
+NSRemovableVolumesUsageDescription = "mFONTS reads fonts stored on your external drives.";
+NSNetworkVolumesUsageDescription = "mFONTS reads fonts stored on your network shares.";

@@ -1,0 +1,2 @@
+NSRemovableVolumesUsageDescription = "mFONTS lit les polices stockées sur vos disques externes.";
+NSNetworkVolumesUsageDescription = "mFONTS lit les polices stockées sur vos partages réseau.";

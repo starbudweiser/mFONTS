@@ -36,6 +36,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func makeWindow() {
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1240, height: 760), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         w.title = "mFONTS"
+        w.titleVisibility = .hidden
+        let label = NSTextField(labelWithAttributedString: {
+            let a = NSMutableAttributedString(string: "mFONTS", attributes: [.font: NSFont.boldSystemFont(ofSize: 15), .foregroundColor: NSColor.labelColor])
+            a.addAttribute(.foregroundColor, value: NSColor(srgbRed: 0x2C / 255, green: 0x9E / 255, blue: 0xD6 / 255, alpha: 1), range: NSRange(location: 0, length: 1))
+            return a }())
+        label.frame = NSRect(x: 0, y: 0, width: 90, height: 22)
+        let acc = NSTitlebarAccessoryViewController(); acc.view = label; acc.layoutAttribute = .left
+        w.addTitlebarAccessoryViewController(acc)
         w.isReleasedWhenClosed = false
         w.contentViewController = NSHostingController(rootView: MainView())
         w.centerOnScreen()

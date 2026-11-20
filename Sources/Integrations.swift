@@ -48,6 +48,7 @@ struct IntegrationsList: View {
     @State private var on = Integrations.enabled
     @State private var tick = 0
     @State private var failure: String?
+    var framed = true
     var onChange: (() -> Void)? = nil
 
     var body: some View {
@@ -75,11 +76,11 @@ struct IntegrationsList: View {
                             Integrations.enabled = on; onChange?()
                         })).labelsHidden().toggleStyle(.switch).tint(Theme.acc)
                     }
-                }.padding(.vertical, 9).padding(.horizontal, 12)
+                }.padding(.vertical, 8).padding(.horizontal, 14).frame(minHeight: 48)
             }
         }
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.r))
-        .overlay(RoundedRectangle(cornerRadius: Theme.r).stroke(Theme.line, lineWidth: 1))
+        .background(framed ? Theme.card : Color.clear, in: RoundedRectangle(cornerRadius: Theme.r))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r).stroke(framed ? Theme.line : Color.clear, lineWidth: 1))
         .id(tick)
         if let failure { Text(failure).font(.system(size: 11.5)).foregroundStyle(.red).padding(.top, 6) }
     }

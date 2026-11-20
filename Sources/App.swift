@@ -19,6 +19,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ n: Notification) {
         Self.shared = self
         if CommandLine.arguments.contains("--selftest-import") { selfTest(); return }
+        if let i = CommandLine.arguments.firstIndex(of: "--selftest-settings"), i + 1 < CommandLine.arguments.count {
+            let dir = CommandLine.arguments[i + 1]
+            for t in SettingsTab.allCases {
+                let r = ImageRenderer(content: SettingsView(tab: t, scrolling: false).environment(\.colorScheme, .dark).background(Color.black))
+                r.scale = 2
+                if let img = r.nsImage, let tiff = img.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+                    try? png.write(to: URL(fileURLWithPath: dir + "/settings-\(t.rawValue).png"))
+                }
+            }
+            exit(0)
+        }
         if CommandLine.arguments.contains("--selftest-clean") { Catalog.shared.deactivateAuto(); RunLoop.main.run(until: Date().addingTimeInterval(2)); print("auto désactivées"); exit(0) }
         if CommandLine.arguments.contains("--selftest-plugins") {
             for p in PluginInstaller.all { do { try PluginInstaller.install(p); print("installé", p.id, PluginInstaller.isInstalled(p)) } catch { print("erreur", p.id, error) } }
@@ -88,7 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let w = NSWindow(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)
             w.title = L.t("menu.settings"); w.isReleasedWhenClosed = false; w.backgroundColor = Theme.nsBg
             w.contentViewController = NSHostingController(rootView: SettingsView())
-            if let c = w.contentView { w.setContentSize(c.fittingSize) }; w.centerOnScreen(); settingsWindow = w
+            w.setContentSize(NSSize(width: 780, height: 600)); w.centerOnScreen(); settingsWindow = w
         }
         settingsWindow?.present()
     }

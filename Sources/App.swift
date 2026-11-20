@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: fenêtres
 
     func makeWindow() {
-        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1240, height: 760), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1180, height: 767), styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView], backing: .buffered, defer: false)
         w.titlebarAppearsTransparent = true
         w.isMovableByWindowBackground = true
         w.title = "mFONTS"
@@ -51,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         w.isReleasedWhenClosed = false
         w.contentViewController = NSHostingController(rootView: MainView())
+        w.setContentSize(NSSize(width: 1180, height: 767))
         w.centerOnScreen()
         window = w
     }

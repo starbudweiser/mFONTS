@@ -262,16 +262,37 @@ final class Catalog: ObservableObject {
 
     // MARK: actions
 
+    /// Progression d'une activation en lot : (faites, total, activation ?).
+    @Published private(set) var activating: (done: Int, total: Int, on: Bool)?
+
     func setActive(_ list: [FontRec], on: Bool) {
+        let todo = list.filter { $0.enabled != on }
+        guard !todo.isEmpty, activating == nil else { return }
         let persistent = Prefs.persistent
-        var failed = 0
-        try? db.transaction {
-            for f in list where f.enabled != on {
-                if Activation.set(f, on: on, persistent: persistent) {
-                    try? db.exec("UPDATE font SET enabled=?, lastUsed=? WHERE id=?", [on, on ? Date().timeIntervalSince1970 : f.lastUsed, f.id])
-                } else { failed += 1 }
-            }
+        // Petit lot (double-clic, famille) : immédiat. Gros lot (bibliothèque, collection) : en tâche de fond, avec progression.
+        if todo.count <= 40 {
+            finishActivation(todo.map { ($0, Activation.set($0, on: on, persistent: persistent)) }, on: on)
+            return
         }
+        activating = (0, todo.count, on)
+        Task.detached(priority: .userInitiated) {
+            var res: [(FontRec, Bool)] = []
+            res.reserveCapacity(todo.count)
+            for (i, f) in todo.enumerated() {
+                res.append((f, Activation.set(f, on: on, persistent: persistent)))
+                if i % 25 == 24 { let n = i + 1; await MainActor.run { self.activating = (n, todo.count, on) } }
+            }
+            let result = res
+            await MainActor.run { self.activating = nil; self.finishActivation(result, on: on) }
+        }
+    }
+
+    private func finishActivation(_ res: [(FontRec, Bool)], on: Bool) {
+        let now = Date().timeIntervalSince1970
+        try? db.transaction {
+            for (f, ok) in res where ok { try? db.exec("UPDATE font SET enabled=?, lastUsed=? WHERE id=?", [on, on ? now : f.lastUsed, f.id]) }
+        }
+        let failed = res.filter { !$0.1 }.count
         if failed > 0 { lastError = L.t("err.activation", failed) }
         reload()
     }

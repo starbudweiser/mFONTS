@@ -88,20 +88,25 @@ struct MainView: View {
                 if showFilters { FilterBar() }
                 HStack(spacing: 12) {
                     FontGrid(sample: sample, grid: grid, scale: scale)
-                    if showInfo, let name = cat.selectedFamily { InspectorView(family: name, sample: sample).frame(width: 320) }
+                    if showInfo, let name = cat.selectedFamily { InspectorView(family: name, sample: sample).frame(minWidth: 280, idealWidth: 320, maxWidth: 360) }
                 }.padding([.horizontal, .bottom], 14).padding(.top, showFilters ? 0 : 4)
                 Divider().opacity(0.5)
                 HStack {
                     Text(L.t("stat.line", cat.familyCount, cat.fonts.count, cat.activeCount))
                     if cat.classifying { Text("· " + L.t("tb.classifying")) }
                     Spacer()
+                    if let a = cat.activating {
+                        Text(L.t(a.on ? "act.on" : "act.off", a.done, a.total)).monospacedDigit()
+                        ProgressView(value: Double(a.done), total: Double(max(a.total, 1))).progressViewStyle(.linear).tint(Theme.acc).frame(width: 180)
+                        Spacer()
+                    }
                     Text(L.t("stat.shown", cat.visible.count))
                 }.font(.system(size: 12)).foregroundStyle(Theme.t2).padding(.horizontal, 14).padding(.vertical, 8)
             }
         }
         .background(Theme.bg)
         .ignoresSafeArea(.container, edges: .top)
-        .frame(minWidth: 1180, minHeight: 600)
+        .frame(width: 1180, height: 767)
         .sheet(isPresented: $showImport) { ImportView(isPresented: $showImport) }
         .alert("mFONTS", isPresented: Binding(get: { cat.lastError != nil }, set: { if !$0 { cat.lastError = nil } })) {
             Button(L.t("btn.ok")) {}
@@ -239,7 +244,10 @@ struct SidebarView: View {
         .foregroundStyle(on ? Color.white : Color.primary)
         .background(on ? Theme.acc : Color.clear, in: RoundedRectangle(cornerRadius: Theme.r))
         .contentShape(Rectangle())
-        .onTapGesture { cat.selection = sel }
+        .onTapGesture {
+            cat.selection = sel
+            if sel == .all { UserDefaults.standard.set(true, forKey: "viewGrid"); cat.selectedFamily = nil }
+        }
     }
 
     func head(_ t: String, plus: (() -> Void)? = nil) -> some View {
@@ -258,6 +266,12 @@ struct SidebarView: View {
                 head(L.t("side.libs"))
                 ForEach(Array(cat.libs.enumerated()), id: \.element.id) { _, l in
                     row(l.name, .library(l.id), count: "lib:" + l.id, icon: "character.book.closed")
+                        .contextMenu {
+                            let members = cat.fonts.filter { $0.lib == l.id }
+                            let allOn = !members.isEmpty && members.allSatisfy(\.enabled)
+                            Button(allOn ? L.t("ctx.deactivate") : L.t("ctx.activate")) { cat.setActive(members, on: !allOn) }
+                                .disabled(members.isEmpty)
+                        }
                 }
                 head(L.t("side.sets"))
                 row(L.t("side.active"), .active, count: "act", icon: "checkmark.circle")
@@ -266,6 +280,11 @@ struct SidebarView: View {
                 ForEach(cat.collections) { c in
                     row(c.name, .collection(c.id), count: "col:" + c.id, icon: "folder")
                         .contextMenu {
+                            let members = cat.fonts.filter { cat.collFonts[c.id]?.contains($0.id) == true }
+                            let allOn = !members.isEmpty && members.allSatisfy(\.enabled)
+                            Button(allOn ? L.t("ctx.deactivate") : L.t("ctx.activate")) { cat.setActive(members, on: !allOn) }
+                                .disabled(members.isEmpty)
+                            Divider()
                             Button(L.t("coll.rename")) { if let n = Prompt.text(L.t("coll.rename"), L.t("coll.name"), c.name) { cat.renameCollection(c.id, n) } }
                             Button(L.t("coll.delete"), role: .destructive) { cat.deleteCollection(c.id) }
                         }
@@ -297,13 +316,13 @@ struct FontGrid: View {
     var body: some View {
         ScrollView {
             if grid {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 10)], spacing: 10) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 300, maximum: .infinity), spacing: 10)], spacing: 10) {
                     ForEach(cat.visible) { FamilyCard(family: $0, sample: sample, scale: scale, compact: false) }
                 }
             } else {
                 LazyVStack(spacing: 6) { ForEach(cat.visible) { FamilyCard(family: $0, sample: sample, scale: scale, compact: true) } }
             }
-        }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -325,13 +344,14 @@ struct FamilyCard: View {
                 Spacer()
             }.font(.system(size: 12)).foregroundStyle(Theme.t2)
             Text(sample.isEmpty ? family.id : sample).font(FontCache.font(rep, size: 28 * scale / 100)).lineLimit(1).minimumScaleFactor(0.4)
-                .frame(maxWidth: .infinity, minHeight: 44 * scale / 100, maxHeight: 44 * scale / 100, alignment: .leading).clipped().opacity(ok ? 1 : 0.35)
+                .frame(maxWidth: .infinity, minHeight: 36 * scale / 100, maxHeight: 36 * scale / 100, alignment: .leading).clipped().opacity(ok ? 1 : 0.35)
         }
         .padding(.vertical, compact ? 8 : 10).padding(.horizontal, 14)
-        .frame(height: compact ? nil : 58 + 44 * scale / 100, alignment: .top)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.r))
         .overlay(RoundedRectangle(cornerRadius: Theme.r).stroke(sel ? Theme.acc : Theme.line, lineWidth: sel ? 2 : 1))
         .contentShape(Rectangle())
+        .onTapGesture(count: 2) { cat.selectedFamily = family.id; cat.setActive(family.fonts, on: !family.allEnabled) }
         .onTapGesture { cat.selectedFamily = family.id }
         .contextMenu { FamilyMenu(fonts: family.fonts) }
     }

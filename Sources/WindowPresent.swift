@@ -18,6 +18,10 @@ extension NSWindow {
 extension NSWindow {
     /// Centre la fenêtre (taille réduite si besoin) au milieu de la zone visible de l'écran où se trouve la souris.
     @MainActor func centerOnScreen() {
+        // Fenêtre dépendante (Socle) : centrée sur la fenêtre de l'appli quand elle est visible.
+        if NSApp.activationPolicy() == .regular, let host = NSApp.windows.first(where: { $0 !== self && $0.isVisible && $0.canBecomeMain }) {
+            setFrameOrigin(NSPoint(x: host.frame.midX - frame.width / 2, y: host.frame.midY - frame.height / 2)); return
+        }
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main ?? NSScreen.screens[0]
         let v = screen.visibleFrame

@@ -23,6 +23,13 @@ enum Theme {
     static let ok = dyn(0x30d158, 0x2fb36a)
 }
 
+/// Zone qui déplace la fenêtre quand on la tire (le reste de la fenêtre ne la déplace pas : curseurs et boutons restent utilisables).
+struct WindowDragArea: NSViewRepresentable {
+    final class V: NSView { override var mouseDownCanMoveWindow: Bool { true } }
+    func makeNSView(context: Context) -> NSView { V() }
+    func updateNSView(_ v: NSView, context: Context) {}
+}
+
 enum Prompt {
     @MainActor static func text(_ title: String, _ message: String, _ initial: String = "") -> String? {
         let a = NSAlert()
@@ -170,7 +177,7 @@ struct MainView: View {
             icon("gearshape", help: L.t("menu.settings")) { AppDelegate.shared.showSettings() }
             Button(L.t("tb.import")) { showImport = true }.fixedSize()
             Button(L.t("tb.add")) { addFonts() }.buttonStyle(.borderedProminent).tint(Theme.acc).fixedSize()
-        }.padding(.horizontal, 14).frame(height: 52)
+        }.padding(.horizontal, 14).frame(height: 52).background(WindowDragArea())
     }
 
     func addFonts() {
@@ -320,6 +327,7 @@ struct SidebarView: View {
             }.padding(.horizontal, 10).padding(.bottom, 10).padding(.top, 46)
         }
         .background(Theme.side)
+        .overlay(alignment: .top) { WindowDragArea().frame(height: 46) }
         .font(.system(size: 13))
     }
 }

@@ -65,7 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func makeWindow() {
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1180, height: 767), styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView], backing: .buffered, defer: false)
         w.titlebarAppearsTransparent = true
-        w.isMovableByWindowBackground = true
+        w.isMovableByWindowBackground = false      // le curseur de taille et les boutons ne doivent jamais déplacer la fenêtre ; zones de déplacement : WindowDragArea
         w.title = "mFONTS"
         w.titleVisibility = .hidden
         let label = NSTextField(labelWithAttributedString: {

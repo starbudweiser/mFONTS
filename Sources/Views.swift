@@ -15,7 +15,9 @@ enum Theme {
     static let nsBg = NSColor(name: nil) { a in
         a.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? NSColor(srgbRed: 0x13 / 255, green: 0x13 / 255, blue: 0x16 / 255, alpha: 1) : NSColor(srgbRed: 0xf1 / 255, green: 0xf1 / 255, blue: 0xf5 / 255, alpha: 1) }
     static let bg = dyn(0x131316, 0xf1f1f5)
-    static let card = dyn(0x232327, 0xffffff)
+    static let side = dyn(0x18181b, 0xe9e9ee)
+    static let line = dyn(0x2f2f35, 0xd7d7de)
+    static let card = dyn(0x1d1d21, 0xffffff)
     static let ctl = dyn(0x2c2c31, 0xe8e8ef)
     static let t2 = dyn(0x98989f, 0x6b6b78)
     static let ok = dyn(0x30d158, 0x2fb36a)
@@ -59,31 +61,41 @@ struct MainView: View {
     var body: some View {
         HStack(spacing: 0) {
             SidebarView().frame(width: 230)
-            VStack(spacing: 12) {
-                HStack(spacing: 8) {
-                    HStack { Image(systemName: "magnifyingglass").foregroundStyle(Theme.t2); TextField(L.t("tb.search"), text: $cat.search).textFieldStyle(.plain) }
-                        .padding(8).background(Theme.ctl, in: RoundedRectangle(cornerRadius: Theme.r))
-                    TextField(L.t("tb.preview"), text: $previewText).textFieldStyle(.plain).padding(8).frame(width: 220)
+            Rectangle().fill(Theme.line).frame(width: 1)
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    Text("Aa").font(.system(size: 12)).foregroundStyle(Theme.t2)
+                    Slider(value: $scale, in: 50...200).frame(width: 110).tint(Theme.acc).help(L.t("set.scale", Int(scale)))
+                    Text("\(Int(scale))").font(.system(size: 12)).foregroundStyle(Theme.t2).monospacedDigit().frame(width: 28, alignment: .leading)
+                    TextField(L.t("tb.preview"), text: $previewText).textFieldStyle(.plain).padding(.horizontal, 10).padding(.vertical, 6)
+                        .frame(minWidth: 150, maxWidth: 300).background(Theme.ctl, in: RoundedRectangle(cornerRadius: Theme.r))
+                    Spacer(minLength: 8)
+                    HStack(spacing: 6) { Image(systemName: "magnifyingglass").foregroundStyle(Theme.t2)
+                        TextField(L.t("tb.search"), text: $cat.search).textFieldStyle(.plain) }
+                        .padding(.horizontal, 10).padding(.vertical, 6).frame(minWidth: 140, maxWidth: 220)
                         .background(Theme.ctl, in: RoundedRectangle(cornerRadius: Theme.r))
                     Picker("", selection: $grid) { Image(systemName: "square.grid.2x2").tag(true); Image(systemName: "list.bullet").tag(false) }
-                        .pickerStyle(.segmented).labelsHidden().frame(width: 80)
-                    Slider(value: $scale, in: 50...200).frame(width: 90).help(L.t("set.scale", Int(scale)))
-                    Button(L.t("tb.import")) { showImport = true }
-                    Button(L.t("tb.add")) { addFonts() }.buttonStyle(.borderedProminent).tint(Theme.acc)
-                }
+                        .pickerStyle(.segmented).labelsHidden().frame(width: 76)
+                    Button(L.t("tb.import")) { showImport = true }.fixedSize()
+                    Button(L.t("tb.add")) { addFonts() }.buttonStyle(.borderedProminent).tint(Theme.acc).fixedSize()
+                }.padding(.horizontal, 14).frame(height: 52)
+                HStack {
+                    Text(L.t("stat.shown", cat.visible.count)).foregroundStyle(Theme.t2)
+                    Spacer()
+                }.font(.system(size: 12)).padding(.horizontal, 14).frame(height: 28)
                 HStack(spacing: 12) {
                     FontGrid(sample: sample, grid: grid, scale: scale)
                     if let name = cat.selectedFamily { InspectorView(family: name, sample: sample).frame(width: 320) }
-                }
+                }.padding([.horizontal, .bottom], 14)
+                Divider().opacity(0.5)
                 HStack {
                     Text(L.t("stat.line", cat.familyCount, cat.fonts.count, cat.activeCount))
                     Spacer()
-                    Text(L.t("stat.shown", cat.visible.count))
-                }.font(.system(size: 12)).foregroundStyle(Theme.t2)
-            }.padding([.horizontal, .bottom], 14).padding(.top, 8)
+                }.font(.system(size: 12)).foregroundStyle(Theme.t2).padding(.horizontal, 14).padding(.vertical, 8)
+            }
         }
         .background(Theme.bg)
-        .frame(minWidth: 980, minHeight: 600)
+        .frame(minWidth: 1180, minHeight: 600)
         .sheet(isPresented: $showImport) { ImportView(isPresented: $showImport) }
         .alert("mFONTS", isPresented: Binding(get: { cat.lastError != nil }, set: { if !$0 { cat.lastError = nil } })) {
             Button(L.t("btn.ok")) {}
@@ -112,12 +124,12 @@ struct SidebarView: View {
         let on = cat.selection == sel
         return HStack(spacing: 8) {
             if let color { RoundedRectangle(cornerRadius: 3).fill(color).frame(width: 9, height: 9) }
-            if let icon { Image(systemName: icon).frame(width: 14) }
+            if let icon { Image(systemName: icon).frame(width: 16) }
             Text(title).lineLimit(1)
             Spacer()
             Text(Catalog.shared.counts[count].map { $0.formatted() } ?? "0").font(.system(size: 11.5)).opacity(0.7).monospacedDigit()
         }
-        .padding(.horizontal, 8).padding(.vertical, 5)
+                .padding(.horizontal, 9).padding(.vertical, 6)
         .foregroundStyle(on ? Color.white : Color.primary)
         .background(on ? Theme.acc : Color.clear, in: RoundedRectangle(cornerRadius: Theme.r))
         .contentShape(Rectangle())
@@ -134,18 +146,19 @@ struct SidebarView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 1) {
                 row(L.t("side.all"), .all, count: "all", icon: "textformat")
-                head(L.t("side.smart"))
                 row(L.t("side.fav"), .favorites, count: "fav", icon: "star")
-                row(L.t("side.active"), .active, count: "act", icon: "circle.fill")
-                row(L.t("side.dups"), .duplicates, count: "dup", icon: "square.on.square")
                 row(L.t("side.recent"), .recent, count: "rec", icon: "clock")
+                row(L.t("side.dups"), .duplicates, count: "dup", icon: "square.on.square")
                 head(L.t("side.libs"))
                 ForEach(Array(cat.libs.enumerated()), id: \.element.id) { _, l in
-                    row(l.name, .library(l.id), count: "lib:" + l.id, color: Color(hex: l.color))
+                    row(l.name, .library(l.id), count: "lib:" + l.id, icon: "character.book.closed")
                 }
+                head(L.t("side.sets"))
+                row(L.t("side.active"), .active, count: "act", icon: "checkmark.circle")
+                row(L.t("side.inactive"), .inactive, count: "ina", icon: "circle")
                 head(L.t("side.collections")) { if let n = Prompt.text(L.t("coll.new"), L.t("coll.name")) { cat.createCollection(n) } }
                 ForEach(cat.collections) { c in
-                    row(c.name, .collection(c.id), count: "col:" + c.id)
+                    row(c.name, .collection(c.id), count: "col:" + c.id, icon: "folder")
                         .contextMenu {
                             Button(L.t("coll.rename")) { if let n = Prompt.text(L.t("coll.rename"), L.t("coll.name"), c.name) { cat.renameCollection(c.id, n) } }
                             Button(L.t("coll.delete"), role: .destructive) { cat.deleteCollection(c.id) }
@@ -157,7 +170,7 @@ struct SidebarView: View {
                 }
             }.padding(10)
         }
-        .background(Theme.bg)
+        .background(Theme.side)
         .font(.system(size: 13))
     }
 }
@@ -178,7 +191,7 @@ struct FontGrid: View {
     var body: some View {
         ScrollView {
             if grid {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 250), spacing: 10)], spacing: 10) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 10)], spacing: 10) {
                     ForEach(cat.visible) { FamilyCard(family: $0, sample: sample, scale: scale, compact: false) }
                 }
             } else {
@@ -196,21 +209,20 @@ struct FamilyCard: View {
         let rep = family.rep
         let sel = cat.selectedFamily == family.id
         let ok = FontCache.exists(rep)
-        VStack(alignment: .leading, spacing: 6) {
-            Text(sample).font(FontCache.font(rep, size: 30 * scale / 100)).lineLimit(1).minimumScaleFactor(0.4)
-                .frame(maxWidth: .infinity, minHeight: 40 * scale / 100, alignment: .leading).opacity(ok ? 1 : 0.35)
-            HStack(spacing: 8) {
-                Text(family.id).fontWeight(.semibold).lineLimit(1)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 7) {
+                Circle().strokeBorder(family.enabledCount > 0 ? Theme.ok : Theme.t2, lineWidth: 1.5).background(Circle().fill(family.allEnabled ? Theme.ok : .clear)).frame(width: 8, height: 8)
+                Text(family.id + " · " + (family.fonts.count == 1 ? L.t("card.style") : L.t("card.styles", family.fonts.count))).lineLimit(1)
                 if family.starred { Image(systemName: "star.fill").foregroundStyle(.yellow).font(.system(size: 10)) }
                 Spacer()
                 Toggle18(on: family.allEnabled, partial: family.enabledCount > 0) { cat.setActive(family.fonts, on: !family.allEnabled) }
-            }
-            Text("\(cat.libName(rep.lib)) · " + (family.fonts.count == 1 ? L.t("card.style") : L.t("card.styles", family.fonts.count)))
-                .font(.system(size: 11.5)).foregroundStyle(Theme.t2).lineLimit(1)
+            }.font(.system(size: 12)).foregroundStyle(Theme.t2)
+            Text(sample).font(FontCache.font(rep, size: 28 * scale / 100)).lineLimit(1).minimumScaleFactor(0.4)
+                .frame(maxWidth: .infinity, minHeight: 36 * scale / 100, alignment: .leading).opacity(ok ? 1 : 0.35)
         }
         .padding(.vertical, compact ? 8 : 12).padding(.horizontal, 14)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.r))
-        .overlay(RoundedRectangle(cornerRadius: Theme.r).stroke(sel ? Theme.acc : .clear, lineWidth: 2))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r).stroke(sel ? Theme.acc : Theme.line, lineWidth: sel ? 2 : 1))
         .contentShape(Rectangle())
         .onTapGesture { cat.selectedFamily = family.id }
         .contextMenu { FamilyMenu(fonts: family.fonts) }

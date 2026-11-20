@@ -40,7 +40,7 @@ struct Family: Identifiable {
 }
 
 enum Sidebar: Hashable {
-    case all, favorites, active, duplicates, recent
+    case all, favorites, active, inactive, duplicates, recent
     case library(String), collection(String), tag(String)
 }
 
@@ -119,6 +119,7 @@ final class Catalog: ObservableObject {
         case .all: return true
         case .favorites: return f.starred
         case .active: return f.enabled
+        case .inactive: return !f.enabled
         case .duplicates: return dupPS.contains(f.ps)
         case .recent: return f.lastUsed > 0
         case .library(let id): return f.lib == id
@@ -138,11 +139,11 @@ final class Catalog: ObservableObject {
         if selection == .recent { fam.sort { ($0.fonts.map(\.lastUsed).max() ?? 0) > ($1.fonts.map(\.lastUsed).max() ?? 0) } }
         else { fam.sort { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending } }
         visible = fam
-        var n: [String: Int] = ["all": fonts.count, "fav": 0, "act": 0, "dup": 0, "rec": 0]
+        var n: [String: Int] = ["all": fonts.count, "fav": 0, "act": 0, "dup": 0, "rec": 0, "ina": 0]
         for f in fonts {
             n["lib:" + f.lib, default: 0] += 1
             if f.starred { n["fav", default: 0] += 1 }
-            if f.enabled { n["act", default: 0] += 1 }
+            if f.enabled { n["act", default: 0] += 1 } else { n["ina", default: 0] += 1 }
             if f.lastUsed > 0 { n["rec", default: 0] += 1 }
             if dupPS.contains(f.ps) { n["dup", default: 0] += 1 }
         }

@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Self.applyPresence()
         timer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { _ in Task { @MainActor in Updater.shared.tick() } }
         Task { @MainActor in Updater.shared.tick() }
+        window?.centerOnScreen()
         window?.present()
     }
 
@@ -37,8 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         w.title = "mFONTS"
         w.isReleasedWhenClosed = false
         w.contentViewController = NSHostingController(rootView: MainView())
-        w.setFrameAutosaveName("mFONTS.main")
-        w.center()
+        w.centerOnScreen()
         window = w
     }
 
@@ -49,7 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let w = NSWindow(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)
             w.title = L.t("menu.settings"); w.isReleasedWhenClosed = false
             w.contentViewController = NSHostingController(rootView: SettingsView())
-            w.center(); settingsWindow = w
+            if let c = w.contentView { w.setContentSize(c.fittingSize) }; w.centerOnScreen(); settingsWindow = w
         }
         settingsWindow?.present()
     }

@@ -53,48 +53,54 @@ struct MainView: View {
     @ObservedObject var cat = Catalog.shared
     @AppStorage("viewGrid") var grid = true
     @AppStorage("previewText") var previewText = ""
+    @AppStorage("previewMode") var mode = "document"
     @AppStorage("previewScale") var scale = 100.0
+    @AppStorage("showFilters") var showFilters = true
+    @AppStorage("showInfo") var showInfo = true
     @State var showImport = false
+    @State var searching = false
+    @FocusState var searchFocus: Bool
 
-    var sample: String { previewText.isEmpty ? L.t("prefs.sample") : previewText }
+    var sample: String {
+        switch mode {
+        case "alphabet": return "ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789"
+        case "pangram": return L.t("prefs.sample")
+        case "name": return ""
+        case "custom": return previewText.isEmpty ? L.t("prefs.sample") : previewText
+        default: return previewText.isEmpty ? L.t("prefs.sample") : previewText
+        }
+    }
+
+    func icon(_ name: String, on: Bool = false, enabled: Bool = true, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: name).font(.system(size: 14)).frame(width: 28, height: 28)
+                .foregroundStyle(on ? Theme.acc : Theme.t2)
+                .background(on ? Theme.acc.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: Theme.r))
+        }.buttonStyle(.plain).disabled(!enabled).opacity(enabled ? 1 : 0.4).help(help)
+    }
 
     var body: some View {
         HStack(spacing: 0) {
             SidebarView().frame(width: 230)
             Rectangle().fill(Theme.line).frame(width: 1)
             VStack(spacing: 0) {
-                HStack(spacing: 12) {
-                    Text("Aa").font(.system(size: 12)).foregroundStyle(Theme.t2)
-                    Slider(value: $scale, in: 50...200).frame(width: 110).tint(Theme.acc).help(L.t("set.scale", Int(scale)))
-                    Text("\(Int(scale))").font(.system(size: 12)).foregroundStyle(Theme.t2).monospacedDigit().frame(width: 28, alignment: .leading)
-                    TextField(L.t("tb.preview"), text: $previewText).textFieldStyle(.plain).padding(.horizontal, 10).padding(.vertical, 6)
-                        .frame(minWidth: 150, maxWidth: 300).background(Theme.ctl, in: RoundedRectangle(cornerRadius: Theme.r))
-                    Spacer(minLength: 8)
-                    HStack(spacing: 6) { Image(systemName: "magnifyingglass").foregroundStyle(Theme.t2)
-                        TextField(L.t("tb.search"), text: $cat.search).textFieldStyle(.plain) }
-                        .padding(.horizontal, 10).padding(.vertical, 6).frame(minWidth: 140, maxWidth: 220)
-                        .background(Theme.ctl, in: RoundedRectangle(cornerRadius: Theme.r))
-                    Picker("", selection: $grid) { Image(systemName: "square.grid.2x2").tag(true); Image(systemName: "list.bullet").tag(false) }
-                        .pickerStyle(.segmented).labelsHidden().frame(width: 76)
-                    Button(L.t("tb.import")) { showImport = true }.fixedSize()
-                    Button(L.t("tb.add")) { addFonts() }.buttonStyle(.borderedProminent).tint(Theme.acc).fixedSize()
-                }.padding(.horizontal, 14).frame(height: 52)
-                HStack {
-                    Text(L.t("stat.shown", cat.visible.count)).foregroundStyle(Theme.t2)
-                    Spacer()
-                }.font(.system(size: 12)).padding(.horizontal, 14).frame(height: 28)
+                toolbar
+                if showFilters { FilterBar() }
                 HStack(spacing: 12) {
                     FontGrid(sample: sample, grid: grid, scale: scale)
-                    if let name = cat.selectedFamily { InspectorView(family: name, sample: sample).frame(width: 320) }
-                }.padding([.horizontal, .bottom], 14)
+                    if showInfo, let name = cat.selectedFamily { InspectorView(family: name, sample: sample).frame(width: 320) }
+                }.padding([.horizontal, .bottom], 14).padding(.top, showFilters ? 0 : 4)
                 Divider().opacity(0.5)
                 HStack {
                     Text(L.t("stat.line", cat.familyCount, cat.fonts.count, cat.activeCount))
+                    if cat.classifying { Text("· " + L.t("tb.classifying")) }
                     Spacer()
+                    Text(L.t("stat.shown", cat.visible.count))
                 }.font(.system(size: 12)).foregroundStyle(Theme.t2).padding(.horizontal, 14).padding(.vertical, 8)
             }
         }
         .background(Theme.bg)
+        .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 1180, minHeight: 600)
         .sheet(isPresented: $showImport) { ImportView(isPresented: $showImport) }
         .alert("mFONTS", isPresented: Binding(get: { cat.lastError != nil }, set: { if !$0 { cat.lastError = nil } })) {
@@ -108,10 +114,110 @@ struct MainView: View {
         }
     }
 
+    var toolbar: some View {
+        HStack(spacing: 10) {
+            icon("chevron.left", enabled: cat.canBack, help: L.t("tb.back")) { cat.go(-1) }
+            icon("chevron.right", enabled: cat.canForward, help: L.t("tb.forward")) { cat.go(1) }
+            Text("Aa").font(.system(size: 12)).foregroundStyle(Theme.t2).padding(.leading, 6)
+            Slider(value: $scale, in: 50...200).frame(width: 110).tint(Theme.acc).help(L.t("set.scale", Int(scale)))
+            Text("\(Int(scale))").font(.system(size: 12)).foregroundStyle(Theme.t2).monospacedDigit().frame(width: 28, alignment: .leading)
+            Menu {
+                ForEach(["document", "alphabet", "pangram", "name", "custom"], id: \.self) { m in
+                    Button { mode = m } label: { if mode == m { Label(L.t("doc." + m), systemImage: "checkmark") } else { Text(L.t("doc." + m)) } }
+                }
+            } label: { HStack(spacing: 6) { Image(systemName: "doc.text"); Text(L.t("doc." + mode)) } }
+                .menuStyle(.borderlessButton).fixedSize()
+                .padding(.horizontal, 10).padding(.vertical, 5).background(Theme.ctl, in: RoundedRectangle(cornerRadius: Theme.r))
+            if mode == "custom" {
+                TextField(L.t("tb.preview"), text: $previewText).textFieldStyle(.plain).padding(.horizontal, 10).padding(.vertical, 6)
+                    .frame(width: 190).background(Theme.ctl, in: RoundedRectangle(cornerRadius: Theme.r))
+            }
+            Spacer(minLength: 8)
+            if searching || !cat.search.isEmpty {
+                HStack(spacing: 6) { Image(systemName: "magnifyingglass").foregroundStyle(Theme.t2)
+                    TextField(L.t("tb.search"), text: $cat.search).textFieldStyle(.plain).focused($searchFocus)
+                    Button { cat.search = ""; searching = false } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.t2) }.buttonStyle(.plain) }
+                    .padding(.horizontal, 10).padding(.vertical, 6).frame(width: 220).background(Theme.ctl, in: RoundedRectangle(cornerRadius: Theme.r))
+            }
+            icon("magnifyingglass", on: searching, help: L.t("tb.search")) { searching.toggle(); if searching { DispatchQueue.main.async { searchFocus = true } } }
+            icon("line.3.horizontal.decrease", on: showFilters || cat.filtersActive, help: L.t("tb.filter")) { showFilters.toggle() }
+            icon(grid ? "square.grid.2x2" : "list.bullet", help: grid ? L.t("tb.viewList") : L.t("tb.viewGrid")) { grid.toggle() }
+            Menu {
+                ForEach(SortKey.allCases, id: \.self) { k in
+                    Button { cat.sortKey = k } label: { if cat.sortKey == k { Label(L.t("sort." + k.rawValue), systemImage: "checkmark") } else { Text(L.t("sort." + k.rawValue)) } }
+                }
+                Divider()
+                Button { cat.sortAsc = true } label: { if cat.sortAsc { Label(L.t("sort.asc"), systemImage: "checkmark") } else { Text(L.t("sort.asc")) } }
+                Button { cat.sortAsc = false } label: { if !cat.sortAsc { Label(L.t("sort.desc"), systemImage: "checkmark") } else { Text(L.t("sort.desc")) } }
+            } label: { Image(systemName: "arrow.up.arrow.down").font(.system(size: 14)).foregroundStyle(Theme.t2).frame(width: 28, height: 28) }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help(L.t("tb.sort"))
+            icon("info.circle", on: showInfo, help: L.t("tb.info")) { showInfo.toggle() }
+            Button(L.t("tb.import")) { showImport = true }.fixedSize()
+            Button(L.t("tb.add")) { addFonts() }.buttonStyle(.borderedProminent).tint(Theme.acc).fixedSize()
+        }.padding(.horizontal, 14).frame(height: 52)
+    }
+
     func addFonts() {
         let p = NSOpenPanel(); p.allowsMultipleSelection = true; p.canChooseDirectories = true
         p.allowedContentTypes = [.font, .folder]
         if p.runModal() == .OK { _ = cat.addFiles(p.urls) }
+    }
+}
+
+// MARK: barre de filtres (puces)
+
+struct FilterBar: View {
+    @ObservedObject var cat = Catalog.shared
+    static let langs = ["fr", "en", "es", "it", "de", "pt", "nl", "pl", "sv", "tr", "ru", "el", "ja", "zh", "ar", "hi", "vi"]
+    static let classes = ["serif", "sans", "script", "mono", "display", "symbol", "other"]
+
+    func chip(_ title: String, on: Bool = false, menu: Bool = false) -> some View {
+        HStack(spacing: 4) { Text(title); if menu { Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)) } else if on { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) } }
+            .font(.system(size: 13)).foregroundStyle(on ? Theme.acc : Theme.t2)
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(on ? Theme.acc.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: Theme.r))
+            .contentShape(Rectangle())
+    }
+    func check(_ t: String, _ on: Bool) -> some View { on ? AnyView(Label(t, systemImage: "checkmark")) : AnyView(Text(t)) }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Button { cat.onlyFavorites.toggle() } label: {
+                Image(systemName: cat.onlyFavorites ? "star.fill" : "star").frame(width: 28, height: 28)
+                    .foregroundStyle(cat.onlyFavorites ? Color.yellow : Theme.t2)
+            }.buttonStyle(.plain).help(L.t("more.fav"))
+            Menu {
+                Button { cat.status = 0 } label: { check(L.t("st.all"), cat.status == 0) }
+                Button { cat.status = 1 } label: { check(L.t("st.active"), cat.status == 1) }
+                Button { cat.status = 2 } label: { check(L.t("st.inactive"), cat.status == 2) }
+            } label: { chip(cat.status == 0 ? L.t("chip.status") : L.t(cat.status == 1 ? "st.active" : "st.inactive"), on: cat.status != 0, menu: true) }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            ForEach(Self.classes.filter { cat.clsFilter.contains($0) }, id: \.self) { c in
+                Button { cat.clsFilter.remove(c) } label: { chip(L.t("cls." + c), on: true) }.buttonStyle(.plain)
+            }
+            Rectangle().fill(Theme.line).frame(width: 1, height: 16).padding(.horizontal, 4)
+            Menu {
+                ForEach(Self.classes, id: \.self) { c in
+                    Button { if cat.clsFilter.contains(c) { cat.clsFilter.remove(c) } else { cat.clsFilter.insert(c) } } label: { check(L.t("cls." + c), cat.clsFilter.contains(c)) }
+                }
+            } label: { chip(L.t("chip.props"), menu: true) }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            Menu {
+                Button { cat.langFilter = nil } label: { check(L.t("st.all"), cat.langFilter == nil) }
+                Divider()
+                ForEach(Self.langs, id: \.self) { l in Button { cat.langFilter = l } label: { check(L.t("lang." + l), cat.langFilter == l) } }
+            } label: { chip(cat.langFilter.map { L.t("lang." + $0) } ?? L.t("chip.lang"), on: cat.langFilter != nil, menu: true) }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            Menu {
+                Button { cat.onlyFavorites.toggle() } label: { check(L.t("more.fav"), cat.onlyFavorites) }
+                Button { cat.onlyItalic.toggle() } label: { check(L.t("more.italic"), cat.onlyItalic) }
+            } label: { chip(L.t("chip.more"), on: cat.onlyItalic, menu: true) }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            if cat.filtersActive { Button { cat.clearFilters() } label: { chip(L.t("chip.clear")) }.buttonStyle(.plain) }
+            Button {
+                if let n = Prompt.text(L.t("chip.save.title"), L.t("chip.savename")) { cat.saveVisibleAsCollection(n) }
+            } label: { chip(L.t("chip.save")) }.buttonStyle(.plain).disabled(cat.visible.isEmpty)
+            Spacer()
+            Text(L.t("chip.count", cat.visible.count, cat.familyCount)).font(.system(size: 12)).foregroundStyle(Theme.t2)
+        }.padding(.horizontal, 14).frame(height: 40)
     }
 }
 
@@ -168,7 +274,7 @@ struct SidebarView: View {
                     head(L.t("side.tags"))
                     ForEach(cat.tags) { t in row(t.name, .tag(t.id), count: "tag:" + t.id, icon: "tag") }
                 }
-            }.padding(10)
+            }.padding(.horizontal, 10).padding(.bottom, 10).padding(.top, 46)
         }
         .background(Theme.side)
         .font(.system(size: 13))
@@ -212,15 +318,17 @@ struct FamilyCard: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 7) {
                 Circle().strokeBorder(family.enabledCount > 0 ? Theme.ok : Theme.t2, lineWidth: 1.5).background(Circle().fill(family.allEnabled ? Theme.ok : .clear)).frame(width: 8, height: 8)
+                    .padding(4).contentShape(Rectangle()).onTapGesture { cat.setActive(family.fonts, on: !family.allEnabled) }
+                    .help(family.allEnabled ? L.t("ctx.deactivate") : L.t("ctx.activate"))
                 Text(family.id + " · " + (family.fonts.count == 1 ? L.t("card.style") : L.t("card.styles", family.fonts.count))).lineLimit(1)
                 if family.starred { Image(systemName: "star.fill").foregroundStyle(.yellow).font(.system(size: 10)) }
                 Spacer()
-                Toggle18(on: family.allEnabled, partial: family.enabledCount > 0) { cat.setActive(family.fonts, on: !family.allEnabled) }
             }.font(.system(size: 12)).foregroundStyle(Theme.t2)
-            Text(sample).font(FontCache.font(rep, size: 28 * scale / 100)).lineLimit(1).minimumScaleFactor(0.4)
-                .frame(maxWidth: .infinity, minHeight: 36 * scale / 100, alignment: .leading).opacity(ok ? 1 : 0.35)
+            Text(sample.isEmpty ? family.id : sample).font(FontCache.font(rep, size: 28 * scale / 100)).lineLimit(1).minimumScaleFactor(0.4)
+                .frame(maxWidth: .infinity, minHeight: 44 * scale / 100, maxHeight: 44 * scale / 100, alignment: .leading).clipped().opacity(ok ? 1 : 0.35)
         }
-        .padding(.vertical, compact ? 8 : 12).padding(.horizontal, 14)
+        .padding(.vertical, compact ? 8 : 10).padding(.horizontal, 14)
+        .frame(height: compact ? nil : 58 + 44 * scale / 100, alignment: .top)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.r))
         .overlay(RoundedRectangle(cornerRadius: Theme.r).stroke(sel ? Theme.acc : Theme.line, lineWidth: sel ? 2 : 1))
         .contentShape(Rectangle())

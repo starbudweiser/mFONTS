@@ -60,6 +60,20 @@ enum RightFontImporter {
         }.sorted { $0.count > $1.count }
     }
 
+    private static func listJSON(_ dir: URL) -> [URL] {
+        ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []).filter { $0.pathExtension == "rightfontmetadata" }
+    }
+
+    /// La liste de polices d'une collection : tableau JSON, ou texte « ['ID', 'ID'] ».
+    private static func fontIDList(_ v: Any?) -> [String] {
+        if let a = v as? [String] { return a }
+        guard let s = v as? String else { return [] }
+        var out: [String] = [], cur = ""
+        for ch in s { if ch.isHexDigit || ch == "-" { cur.append(ch) } else { if cur.count >= 32 { out.append(cur) }; cur = "" } }
+        if cur.count >= 32 { out.append(cur) }
+        return out
+    }
+
     /// Lecture complète, hors du fil principal.
     static func read(_ libs: [RFLibrary], options o: ImportOptions, progress: @Sendable (Double, String) -> Void) -> ImportPayload {
         var p = ImportPayload(libs: [], fonts: [], extras: [:], collections: [], fontCollections: [], tags: [], fontTags: [], activeIDs: [], skipped: 0, errors: [])
@@ -68,28 +82,75 @@ enum RightFontImporter {
         let total = max(1, chosen.reduce(0) { $0 + $1.count })
         var done = 0
         var fontIDs = Set<String>()
+        func addFont(_ f: URL, _ lib: RFLibrary) {
+            guard let data = try? Data(contentsOf: f), let d = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let uuid = d["uuid"] as? String, let loc = d["location"] as? String, let family = d["family"] as? String else { p.skipped += 1; return }
+            if fontIDs.contains(uuid) { return }
+            let path = lib.url.appendingPathComponent("fonts/" + loc).path
+            let style = (d["style"] as? String) ?? "Regular"
+            let rec = FontRec(id: uuid, lib: lib.id, family: family, style: style, full: (d["fullName"] as? String) ?? family + " " + style,
+                              ps: (d["postscriptName"] as? String) ?? uuid, path: path, type: (d["fileType"] as? String) ?? "",
+                              designer: (d["designer"] as? String) ?? "", weight: (d["weight"] as? Int) ?? 5,
+                              italic: (d["isItalicStyle"] as? Bool) ?? false, enabled: false, starred: (d["starred"] as? Bool) ?? false, lastUsed: 0)
+            p.fonts.append(rec); fontIDs.insert(uuid)
+            p.extras[uuid] = FontExtra(license: (d["license"] as? String) ?? "", licenseURL: (d["licenseURL"] as? String) ?? "",
+                                       langs: (d["supportedLanguages"] as? String) ?? "", notes: (d["notes"] as? String) ?? "",
+                                       version: (d["version"] as? String) ?? "", copyright: (d["copyright"] as? String) ?? "")
+        }
         for (i, lib) in chosen.enumerated() {
             p.libs.append(LibRec(id: lib.id, name: lib.name, color: palette[i % palette.count]))
             let dir = lib.url.appendingPathComponent("metadata/fonts")
             let files = ((try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []).filter { $0.pathExtension == "rightfontmetadata" }
-            for f in files {
-                done += 1
+            for f in files { done += 1
                 if done % 100 == 0 { progress(Double(done) / Double(total), lib.name) }
-                guard let data = try? Data(contentsOf: f), let d = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let uuid = d["uuid"] as? String, let loc = d["location"] as? String, let family = d["family"] as? String else { p.skipped += 1; continue }
-                let path = lib.url.appendingPathComponent("fonts/" + loc).path
-                let style = (d["style"] as? String) ?? "Regular"
-                let rec = FontRec(id: uuid, lib: lib.id, family: family, style: style, full: (d["fullName"] as? String) ?? family + " " + style,
-                                  ps: (d["postscriptName"] as? String) ?? uuid, path: path, type: (d["fileType"] as? String) ?? "",
-                                  designer: (d["designer"] as? String) ?? "", weight: (d["weight"] as? Int) ?? 5,
-                                  italic: (d["isItalicStyle"] as? Bool) ?? false, enabled: false, starred: (d["starred"] as? Bool) ?? false, lastUsed: 0)
-                p.fonts.append(rec); fontIDs.insert(uuid)
-                p.extras[uuid] = FontExtra(license: (d["license"] as? String) ?? "", licenseURL: (d["licenseURL"] as? String) ?? "",
-                                           langs: (d["supportedLanguages"] as? String) ?? "", notes: (d["notes"] as? String) ?? "",
-                                           version: (d["version"] as? String) ?? "", copyright: (d["copyright"] as? String) ?? "")
-            }
+                addFont(f, lib) }
         }
         progress(0.9, "Right Fonts")
+        // Collections et étiquettes stockées en JSON dans les bibliothèques (metadata/fontlists, metadata/tags) et dans ~/RightFont/Tags.
+        if o.collections || o.tags {
+            var dirs: [URL] = []
+            for lib in chosen {
+                dirs.append(lib.url)
+                let twin = URL(fileURLWithPath: NSHomeDirectory() + "/RightFont/" + lib.url.lastPathComponent)
+                if twin.path != lib.url.path, fm.fileExists(atPath: twin.path) { dirs.append(twin) }
+            }
+            var files: [(URL, Bool)] = []          // (fichier, estUneCollection)
+            for d in dirs {
+                if o.collections { files += listJSON(d.appendingPathComponent("metadata/fontlists")).map { ($0, true) } }
+                if o.tags { files += listJSON(d.appendingPathComponent("metadata/tags")).map { ($0, false) } }
+            }
+            if o.tags { files += listJSON(URL(fileURLWithPath: NSHomeDirectory() + "/RightFont/Tags")).map { ($0, false) } }
+            // Polices citées par une collection ou une étiquette mais absentes de la bibliothèque choisie : reprises dans la bibliothèque jumelle (~/RightFont).
+            var wanted = Set<String>()
+            for (f, _) in files { if let data = try? Data(contentsOf: f), let d = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { wanted.formUnion(fontIDList(d["fonts"])) } }
+            let missing = wanted.subtracting(fontIDs)
+            if !missing.isEmpty {
+                for lib in chosen {
+                    let twin = URL(fileURLWithPath: NSHomeDirectory() + "/RightFont/" + lib.url.lastPathComponent)
+                    guard twin.path != lib.url.path else { continue }
+                    let tl = RFLibrary(id: lib.id, name: lib.name, url: twin, count: 0)
+                    for id in missing where !fontIDs.contains(id) {
+                        let f = twin.appendingPathComponent("metadata/fonts/\(id).rightfontmetadata")
+                        if fm.fileExists(atPath: f.path) { addFont(f, tl) }
+                    }
+                }
+            }
+            var seenC = Set(p.collections.map(\.id)), seenT = Set(p.tags.map(\.id))
+            var linkC = Set(p.fontCollections.map { $0.0 + "|" + $0.1 }), linkT = Set(p.fontTags.map { $0.0 + "|" + $0.1 })
+            for (f, isColl) in files {
+                guard let data = try? Data(contentsOf: f), let d = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let id = d["uuid"] as? String, let name = d["name"] as? String, (d["type"] as? Int ?? 0) == (isColl ? 0 : 1) else { continue }
+                let ids = fontIDList(d["fonts"]).filter { fontIDs.contains($0) }
+                if isColl {
+                    if seenC.insert(id).inserted { p.collections.append(CollRec(id: id, name: name)) }
+                    for x in ids where linkC.insert(x + "|" + id).inserted { p.fontCollections.append((x, id)) }
+                } else {
+                    if ids.isEmpty { continue }
+                    if seenT.insert(id).inserted { p.tags.append(TagRec(id: id, name: name)) }
+                    for x in ids where linkT.insert(x + "|" + id).inserted { p.fontTags.append((x, id)) }
+                }
+            }
+        }
         // Base de Right Fonts : copiée (avec son journal) pour être lue sans rien toucher à l'original.
         if (o.collections || o.tags || o.activate), fm.fileExists(atPath: coreDB) {
             let tmp = fm.temporaryDirectory.appendingPathComponent("mfonts-rf-" + UUID().uuidString)

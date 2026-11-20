@@ -18,6 +18,8 @@ struct FontRec: Identifiable, Hashable, Sendable {
     var enabled: Bool
     var starred: Bool
     var lastUsed: Double
+    var cls: String = ""
+    var langs: String = ""
     var url: URL { URL(fileURLWithPath: path) }
 }
 
@@ -44,6 +46,8 @@ enum Sidebar: Hashable {
     case library(String), collection(String), tag(String)
 }
 
+enum SortKey: String, CaseIterable { case name, styles, recent }
+
 @MainActor
 final class Catalog: ObservableObject {
     static let shared = Catalog()
@@ -54,9 +58,31 @@ final class Catalog: ObservableObject {
     @Published private(set) var tags: [TagRec] = []
     @Published private(set) var visible: [Family] = []
     @Published private(set) var counts: [String: Int] = [:]
-    @Published var selection: Sidebar = .all { didSet { refresh() } }
+    @Published var selection: Sidebar = .all { didSet {
+        if !navigating, selection != oldValue { history = Array(history[0...hpos]) + [selection]; hpos = history.count - 1 }
+        refresh() } }
     @Published var search = "" { didSet { refresh() } }
     @Published var selectedFamily: String?
+    // Filtres (barre de puces)
+    @Published var status = 0 { didSet { refresh() } }                 // 0 toutes, 1 activées, 2 désactivées
+    @Published var clsFilter: Set<String> = [] { didSet { refresh() } }
+    @Published var langFilter: String? { didSet { refresh() } }
+    @Published var onlyFavorites = false { didSet { refresh() } }
+    @Published var onlyItalic = false { didSet { refresh() } }
+    @Published var sortKey: SortKey = .name { didSet { refresh() } }
+    @Published var sortAsc = true { didSet { refresh() } }
+    @Published var classifying = false
+    private var history: [Sidebar] = [.all]
+    private var hpos = 0
+    private var navigating = false
+    var canBack: Bool { hpos > 0 }
+    var canForward: Bool { hpos < history.count - 1 }
+    var filtersActive: Bool { status != 0 || !clsFilter.isEmpty || langFilter != nil || onlyFavorites || onlyItalic }
+    func clearFilters() { status = 0; clsFilter = []; langFilter = nil; onlyFavorites = false; onlyItalic = false }
+    func go(_ d: Int) {
+        let n = hpos + d; guard n >= 0, n < history.count else { return }
+        hpos = n; navigating = true; selection = history[n]; navigating = false
+    }
     @Published var lastError: String?
 
     private(set) var collFonts: [String: Set<String>] = [:]
@@ -87,7 +113,10 @@ final class Catalog: ObservableObject {
                 "CREATE TABLE IF NOT EXISTS tag(id TEXT PRIMARY KEY, name TEXT)",
                 "CREATE TABLE IF NOT EXISTS fontTag(font TEXT, tag TEXT, PRIMARY KEY(font, tag))",
             ] { try db.exec(sql) }
+            try? db.exec("ALTER TABLE font ADD COLUMN cls TEXT DEFAULT ''")
+            if !UserDefaults.standard.bool(forKey: "clsV2") { try? db.exec("UPDATE font SET cls=''"); UserDefaults.standard.set(true, forKey: "clsV2") }
             reload()
+            classify()
         } catch { lastError = error.localizedDescription }
     }
 
@@ -95,10 +124,10 @@ final class Catalog: ObservableObject {
 
     func reload() {
         var f: [FontRec] = []
-        try? db.query("SELECT id,lib,family,style,full,ps,path,type,designer,weight,italic,enabled,starred,lastUsed FROM font") { r in
+        try? db.query("SELECT id,lib,family,style,full,ps,path,type,designer,weight,italic,enabled,starred,lastUsed,COALESCE(cls,''),COALESCE(langs,'') FROM font") { r in
             f.append(FontRec(id: r.text(0), lib: r.text(1), family: r.text(2), style: r.text(3), full: r.text(4), ps: r.text(5), path: r.text(6),
                              type: r.text(7), designer: r.text(8), weight: r.int(9), italic: r.int(10) != 0, enabled: r.int(11) != 0,
-                             starred: r.int(12) != 0, lastUsed: r.double(13)))
+                             starred: r.int(12) != 0, lastUsed: r.double(13), cls: r.text(14), langs: r.text(15)))
         }
         fonts = f
         var l: [LibRec] = []; try? db.query("SELECT id,name,color FROM library ORDER BY name COLLATE NOCASE") { l.append(LibRec(id: $0.text(0), name: $0.text(1), color: $0.text(2))) }
@@ -128,16 +157,29 @@ final class Catalog: ObservableObject {
         }
     }
 
+    private func passes(_ f: FontRec) -> Bool {
+        if status == 1 && !f.enabled { return false }
+        if status == 2 && f.enabled { return false }
+        if !clsFilter.isEmpty && !clsFilter.contains(f.cls) { return false }
+        if onlyFavorites && !f.starred { return false }
+        if onlyItalic && !f.italic { return false }
+        if let l = langFilter { let t = "," + f.langs; if !(t.contains("," + l + ",") || t.contains("," + l + "-") || t.hasSuffix("," + l)) { return false } }
+        return true
+    }
+
     func refresh() {
         let q = search.trimmingCharacters(in: .whitespaces).lowercased()
         var groups: [String: [FontRec]] = [:]
-        for f in fonts where matches(f) {
+        for f in fonts where matches(f) && passes(f) {
             if !q.isEmpty, !(f.family.lowercased().contains(q) || f.full.lowercased().contains(q) || f.designer.lowercased().contains(q)) { continue }
             groups[f.family, default: []].append(f)
         }
         var fam = groups.map { Family(id: $0.key, fonts: $0.value.sorted { ($0.weight, $0.italic ? 1 : 0, $0.style) < ($1.weight, $1.italic ? 1 : 0, $1.style) }) }
-        if selection == .recent { fam.sort { ($0.fonts.map(\.lastUsed).max() ?? 0) > ($1.fonts.map(\.lastUsed).max() ?? 0) } }
-        else { fam.sort { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending } }
+        switch sortKey {
+        case .name: fam.sort { ($0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending) == sortAsc }
+        case .styles: fam.sort { sortAsc ? $0.fonts.count < $1.fonts.count : $0.fonts.count > $1.fonts.count }
+        case .recent: fam.sort { (($0.fonts.map(\.lastUsed).max() ?? 0) > ($1.fonts.map(\.lastUsed).max() ?? 0)) == sortAsc }
+        }
         visible = fam
         var n: [String: Int] = ["all": fonts.count, "fav": 0, "act": 0, "dup": 0, "rec": 0, "ina": 0]
         for f in fonts {
@@ -151,6 +193,59 @@ final class Catalog: ObservableObject {
         for (k, v) in tagFonts { n["tag:" + k] = v.count }
         counts = n
     }
+
+    /// Classe de chaque police (serif, sans, script…) d'après ses traits CoreText, calculée une fois en arrière-plan puis mémorisée.
+    func classify() {
+        let todo = fonts.filter { $0.cls.isEmpty }.map { ($0.id, $0.path, $0.ps) }
+        guard !todo.isEmpty, !classifying else { return }
+        classifying = true
+        Task.detached(priority: .utility) {
+            var out: [(String, String)] = []
+            for (id, path, ps) in todo {
+                var c = "other"
+                if let ds = CTFontManagerCreateFontDescriptorsFromURL(URL(fileURLWithPath: path) as CFURL) as? [CTFontDescriptor], !ds.isEmpty {
+                    let d = ds.first { (CTFontDescriptorCopyAttribute($0, kCTFontNameAttribute) as? String) == ps } ?? ds[0]
+                    let font = CTFontCreateWithFontDescriptor(d, 12, nil)
+                    var sym: UInt32 = 0
+                    if let tr = CTFontDescriptorCopyAttribute(d, kCTFontTraitsAttribute) as? [CFString: Any], let v = (tr[kCTFontSymbolicTrait] as? NSNumber)?.uint32Value { sym = v }
+                    let k = (sym & 0xF0000000) >> 28
+                    // 1) chasse fixe, 2) PANOSE de la table OS/2, 3) classe CoreText, 4) mots du nom
+                    if sym & (1 << 10) != 0 { c = "mono" }
+                    if c == "other", let t = CTFontCopyTable(font, CTFontTableTag(kCTFontTableOS2), []), CFDataGetLength(t) >= 42 {
+                        let b = CFDataGetBytePtr(t)!
+                        let kind = b[32], serif = b[33]
+                        switch kind {
+                        case 3: c = "script"
+                        case 4: c = "display"
+                        case 5: c = "symbol"
+                        case 2: if (2...10).contains(serif) { c = "serif" } else if (11...15).contains(serif) { c = "sans" }
+                        default: break
+                        }
+                    }
+                    if c == "other" { switch k { case 1, 2, 3, 4, 5, 7: c = "serif"; case 8: c = "sans"; case 10: c = "script"; case 9: c = "display"; case 12: c = "symbol"; default: break } }
+                    if c == "other" {
+                        let n = ps.lowercased()
+                        func has(_ w: [String]) -> Bool { w.contains { n.contains($0) } }
+                        if has(["mono", "code", "courier", "typewriter"]) { c = "mono" }
+                        else if has(["script", "hand", "brush", "callig", "marker", "cursive", "signature", "pen"]) { c = "script" }
+                        else if has(["sans", "grotesk", "grotesque", "gothic", "arial", "helvet", "futura", "gotham"]) { c = "sans" }
+                        else if has(["serif", "roman", "antiqua", "garamond", "didot", "bodoni", "slab", "times", "georgia", "caslon", "baskerv"]) { c = "serif" }
+                        else if has(["display", "poster", "stencil", "grunge", "decor", "ornament", "outline", "shadow", "inline", "black"]) { c = "display" }
+                    }
+                }
+                out.append((id, c))
+            }
+            let result = out
+            await MainActor.run {
+                try? self.db.transaction { for (id, c) in result { try? self.db.exec("UPDATE font SET cls=? WHERE id=?", [c, id]) } }
+                self.classifying = false
+                self.reload()
+            }
+        }
+    }
+
+    /// Enregistre le résultat courant (filtres compris) comme une collection.
+    func saveVisibleAsCollection(_ name: String) { createCollection(name, adding: visible.flatMap(\.fonts)) }
 
     var familyCount: Int { Set(fonts.map(\.family)).count }
     var activeCount: Int { counts["act"] ?? 0 }
@@ -252,7 +347,7 @@ final class Catalog: ObservableObject {
         } catch { rep.errors.append(error.localizedDescription) }
         rep.fonts = p.fonts.count; rep.collections = p.collections.count; rep.tags = p.tags.count
         rep.skipped = p.skipped; rep.errors += p.errors
-        reload()
+        reload(); classify()
         if o.activate {
             let want = fonts.filter { p.activeIDs.contains($0.id) && !$0.enabled }
             let ok = Activation.setMany(want, persistent: Prefs.persistent)

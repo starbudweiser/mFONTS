@@ -12,6 +12,18 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 swiftc -O -swift-version 5 -parse-as-library -target arm64-apple-macos15 -o "$APP/Contents/MacOS/mFONTS" Sources/*.swift
 cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp -R Resources/plugins "$APP/Contents/Resources/plugins"
+mkdir -p "$APP/Contents/Library/LaunchAgents"
+cat > "$APP/Contents/Library/LaunchAgents/$BID.agent.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+ <key>Label</key><string>$BID.agent</string>
+ <key>BundleProgram</key><string>Contents/MacOS/mFONTS</string>
+ <key>ProgramArguments</key><array><string>Contents/MacOS/mFONTS</string><string>--background</string></array>
+ <key>RunAtLoad</key><true/>
+ <key>ProcessType</key><string>Interactive</string>
+</dict></plist>
+EOF
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BID" -c "Set :CFBundleName $NAME" -c "Set :CFBundleDisplayName $NAME" "$APP/Contents/Info.plist"
 for l in fr en es it; do mkdir -p "$APP/Contents/Resources/$l.lproj"; cp "Resources/$l.lproj/InfoPlist.strings" "$APP/Contents/Resources/$l.lproj/InfoPlist.strings"; done

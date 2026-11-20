@@ -89,12 +89,20 @@ struct IntegrationsList: View {
 struct IntegrationsWelcome: View {
     @Binding var isPresented: Bool
     let items: [Integration]
+    @State private var bg = BackgroundService.isEnabled
     var body: some View {
         VStack(spacing: 14) {
             Image(systemName: "sparkles").font(.system(size: 28)).foregroundStyle(Theme.acc)
             Text(L.t("int.welcome.title")).font(.system(size: 17, weight: .bold)).multilineTextAlignment(.center)
             Text(L.t("int.welcome.text")).font(.system(size: 12.5)).foregroundStyle(Theme.t2).multilineTextAlignment(.center)
             ScrollView { IntegrationsList(items: items) }.frame(maxHeight: 300)
+            if BackgroundService.available {
+                Toggle(L.t("svc.welcome"), isOn: Binding(get: { bg }, set: { v in BackgroundService.set(v); bg = BackgroundService.isEnabled || BackgroundService.needsApproval }))
+                    .toggleStyle(.switch).tint(Theme.acc).font(.system(size: 12.5))
+                    .padding(.vertical, 9).padding(.horizontal, 12)
+                    .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.r))
+                    .overlay(RoundedRectangle(cornerRadius: Theme.r).stroke(Theme.line, lineWidth: 1))
+            }
             Text(L.t("int.welcome.note")).font(.system(size: 11.5)).foregroundStyle(Theme.t2).multilineTextAlignment(.center)
             HStack(spacing: 10) {
                 Spacer()

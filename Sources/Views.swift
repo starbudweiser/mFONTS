@@ -167,6 +167,7 @@ struct MainView: View {
             } label: { Image(systemName: "arrow.up.arrow.down").font(.system(size: 14)).foregroundStyle(Theme.t2).frame(width: 28, height: 28) }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help(L.t("tb.sort"))
             icon("info.circle", on: showInfo, help: L.t("tb.info")) { showInfo.toggle() }
+            icon("gearshape", help: L.t("menu.settings")) { AppDelegate.shared.showSettings() }
             Button(L.t("tb.import")) { showImport = true }.fixedSize()
             Button(L.t("tb.add")) { addFonts() }.buttonStyle(.borderedProminent).tint(Theme.acc).fixedSize()
         }.padding(.horizontal, 14).frame(height: 52)
@@ -384,8 +385,8 @@ struct FamilyCard: View {
         .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.r))
         .overlay(RoundedRectangle(cornerRadius: Theme.r).stroke(sel ? Theme.acc : Theme.line, lineWidth: sel ? 2 : 1))
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) { cat.selectedFamily = family.id; cat.setActive(family.fonts, on: !family.allEnabled) }
-        .onTapGesture { cat.selectedFamily = family.id }
+        .onTapGesture { cat.selectedFamily = family.id }                       // sélection immédiate (pas d'attente du double-clic)
+        .simultaneousGesture(TapGesture(count: 2).onEnded { cat.setActive(family.fonts, on: !family.allEnabled) })
         .contextMenu { FamilyMenu(fonts: family.fonts) }
     }
 }
@@ -574,6 +575,8 @@ struct SettingsView: View {
     @AppStorage("presence") var presence = "both"
     @AppStorage("autoUpdate") var autoUpdate = true
     @AppStorage("autoNotify") var autoNotify = "missing"
+    @State var bgOn = BackgroundService.isEnabled
+    @State var bgError: String?
     @AppStorage("previewText") var previewText = ""
     @AppStorage("previewScale") var scale = 100.0
     @ObservedObject var up = Updater.shared
@@ -590,6 +593,13 @@ struct SettingsView: View {
                     Text(L.t("auto.notify.missing")).tag("missing"); Text(L.t("auto.notify.always")).tag("always"); Text(L.t("auto.notify.never")).tag("never")
                 }.listRowBackground(Theme.card)
                 Text(L.t("auto.set.open.help")).font(.system(size: 12)).foregroundStyle(.secondary).listRowBackground(Theme.card)
+            }
+            Section(L.t("svc.title")) {
+                Toggle(L.t("svc.toggle"), isOn: Binding(get: { bgOn }, set: { v in bgError = BackgroundService.set(v); bgOn = BackgroundService.isEnabled || BackgroundService.needsApproval }))
+                    .disabled(!BackgroundService.available).listRowBackground(Theme.card)
+                Text(L.t(BackgroundService.available ? "svc.help" : "svc.unavailable")).font(.system(size: 12)).foregroundStyle(.secondary).listRowBackground(Theme.card)
+                if BackgroundService.needsApproval { Button(L.t("svc.approve")) { BackgroundService.openLoginItems() }.listRowBackground(Theme.card) }
+                if let bgError { Text(bgError).font(.system(size: 11.5)).foregroundStyle(.red).listRowBackground(Theme.card) }
             }
             Section(L.t("set.presence")) {
                 Picker("", selection: $presence) {
@@ -610,7 +620,7 @@ struct SettingsView: View {
                 Text(statusText).font(.system(size: 12)).foregroundStyle(.secondary).listRowBackground(Theme.card)
             }
         }
-        .formStyle(.grouped).scrollContentBackground(.hidden).background(Theme.bg).tint(Theme.acc).frame(width: 460, height: 800)
+        .formStyle(.grouped).scrollContentBackground(.hidden).background(Theme.bg).tint(Theme.acc).frame(width: 460, height: 900)
         .onChange(of: presence) { _, _ in AppDelegate.applyPresence() }
     }
 

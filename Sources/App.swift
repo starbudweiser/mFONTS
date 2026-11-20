@@ -25,15 +25,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             RunLoop.main.run(until: Date().addingTimeInterval(1.5)); exit(0)
         }
         if let i = CommandLine.arguments.firstIndex(of: "--selftest-doc"), i + 1 < CommandLine.arguments.count { selfTestDoc(CommandLine.arguments[i + 1]); return }
+        // Une seule instance : si mFONTS tourne déjà (par exemple lancé en service), on la réveille et on s'efface.
+        if let me = Bundle.main.bundleIdentifier,
+           let other = NSRunningApplication.runningApplications(withBundleIdentifier: me).first(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
+            other.activate(); NSApp.terminate(nil); return
+        }
+        let background = CommandLine.arguments.contains("--background")
         buildMainMenu()
         makeWindow()
         Self.applyPresence()
+        if background { window?.orderOut(nil); NSApp.setActivationPolicy(.accessory); installStatusItem() }
         AutoActivator.shared.applyWatch()
         if PluginInstaller.anyInstalled { Bridge.shared.start() }
         timer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { _ in Task { @MainActor in Updater.shared.tick() } }
         Task { @MainActor in Updater.shared.tick() }
         window?.centerOnScreen()
-        window?.present()
+        if !background { window?.present() }
     }
 
     func application(_ app: NSApplication, open urls: [URL]) { AutoActivator.shared.openViaMFonts(urls) }
@@ -67,7 +74,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         window = w
     }
 
-    @objc func showMain() { window?.present() }
+    @objc func showMain() { Self.applyPresence(); window?.present() }
+
+    /// Iconifier : la fenêtre disparaît, mFONTS continue dans la barre de menus (activation automatique et extensions Adobe comprises).
+    @objc func hideToMenuBar() {
+        window?.orderOut(nil)
+        NSApp.setActivationPolicy(.accessory)
+        installStatusItem()
+    }
 
     @objc func showSettings() {
         if settingsWindow == nil {
@@ -108,6 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let win = NSMenu(title: "Window")
         win.addItem(withTitle: "Minimize", action: #selector(NSWindow.miniaturize(_:)), keyEquivalent: "m")
         win.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        let hide = win.addItem(withTitle: L.t("menu.hideToBar"), action: #selector(hideToMenuBar), keyEquivalent: "m"); hide.keyEquivalentModifierMask = [.command, .option]; hide.target = self
         winItem.submenu = win
         NSApp.mainMenu = main
         NSApp.windowsMenu = win
@@ -156,6 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         m.addItem(.separator())
         m.addItem(withTitle: L.t("menu.deactivateAll"), action: #selector(deactivateAll), keyEquivalent: "").target = self
         m.addItem(withTitle: L.t("menu.open"), action: #selector(showMain), keyEquivalent: "").target = self
+        m.addItem(withTitle: L.t("menu.settings"), action: #selector(showSettings), keyEquivalent: "").target = self
         m.addItem(withTitle: L.t("menu.about"), action: #selector(showAbout), keyEquivalent: "").target = self
         m.addItem(withTitle: L.t("menu.quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "").target = NSApp
         m.popUp(positioning: nil, at: NSPoint(x: 0, y: b.isFlipped ? b.bounds.maxY + 4 : -4), in: b)

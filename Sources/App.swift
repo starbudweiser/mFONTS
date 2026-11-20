@@ -1,6 +1,7 @@
 // mFONTS — point d'entrée : fenêtre principale, menus, icône de barre de menus, présence Dock / barre.
 import SwiftUI
 import AppKit
+import WebKit
 
 @main
 struct MFontsApp: App {
@@ -52,7 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let i = CommandLine.arguments.firstIndex(of: "--selftest-web"), i + 1 < CommandLine.arguments.count, let u = URL(string: CommandLine.arguments[i + 1]) {
             NSApp.setActivationPolicy(.accessory)
             let h = WebHandle()
-            let host = NSHostingView(rootView: PortalWebView(url: u, handle: h) { f, hst in print("capté :", f.lastPathComponent, "depuis", hst); Downloads.shared.installCaught(f, host: hst) }.frame(width: 600, height: 400))
+            let host = NSHostingView(rootView: PortalWebView(url: u, portalID: "selftest", handle: h) { f, hst in print("capté :", f.lastPathComponent, "depuis", hst); Downloads.shared.installCaught(f, host: hst) }.frame(width: 600, height: 400))
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
             w.contentView = host; w.orderBack(nil)
             Task { @MainActor in
@@ -60,6 +61,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 for it in Downloads.shared.items { print(it.name, "→", it.state) }
                 print("polices :", Catalog.shared.fonts.filter { $0.lib == "downloaded" }.map(\.ps))
                 exit(0)
+            }
+            return
+        }
+        if CommandLine.arguments.contains("--selftest-login") {
+            // Page de connexion simulée (origine https sans réseau) : capture, bandeau, enregistrement Trousseau, remplissage.
+            NSApp.setActivationPolicy(.accessory)
+            UserDefaults.standard.set(false, forKey: "vaultTouch")
+            let h = WebHandle(); h.portalName = "Test"
+            let cfg = WKWebViewConfiguration(); cfg.websiteDataStore = .nonPersistent()
+            cfg.userContentController.addUserScript(WKUserScript(source: CredentialScript.source, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
+            cfg.userContentController.add(CredHandler(h), contentWorld: .defaultClient, name: "mfCred")
+            let w = WKWebView(frame: NSRect(x: 0, y: 0, width: 500, height: 300), configuration: cfg)
+            let win = NSWindow(contentRect: w.frame, styleMask: [.titled], backing: .buffered, defer: false); win.contentView = w; win.orderBack(nil)
+            h.attach(w)
+            let form = "<form id=f onsubmit='return false'><input id=u type=email><input id=p type=password><button id=b type=submit>Go</button></form>"
+            let host = "login.mfonts-test.example"
+            Task { @MainActor in
+                func wait(_ s: Double) async { try? await Task.sleep(nanoseconds: UInt64(s * 1_000_000_000)) }
+                func js(_ c: String) async -> Any? { try? await w.evaluateJavaScript(c, in: nil, contentWorld: .defaultClient) }
+                for a in PortalVault.list(host: host) { PortalVault.forget(host: a.host, user: a.user) }
+                w.loadHTMLString(form, baseURL: URL(string: "https://" + host + "/login")); await wait(1.2)
+                print("1 formulaire détecté :", h.hasForm, "· hôte :", h.pageHost ?? "nil")
+                _ = await js("document.getElementById('u').value='a@b.fr';document.getElementById('p').value='s3cret';document.getElementById('b').click()"); await wait(0.5)
+                print("2 identifiant capté :", h.candidate?.user ?? "nil", "· mot de passe de", h.candidate?.pass.count ?? 0, "car.")
+                _ = await js("document.getElementById('f').remove()"); await wait(0.8)
+                print("3 bandeau d'enregistrement :", h.pending?.user ?? "absent")
+                h.savePending()
+                print("4 Trousseau :", PortalVault.list(host: host).map { $0.user + " · " + $0.label })
+                w.loadHTMLString(form, baseURL: URL(string: "https://" + host + "/login")); await wait(1.2)
+                h.refreshAccounts()
+                print("5 comptes proposés :", h.accounts.map(\.user), "· bandeau de remplissage :", h.hasForm && !h.fillHidden)
+                if let a = h.accounts.first { h.fill(a) }; await wait(1.0)
+                let r = await js("document.getElementById('u').value + '|' + document.getElementById('p').value")
+                print("6 champs remplis :", r as? String ?? "nil")
+                // garde-fou : autre hôte, pas de remplissage
+                w.loadHTMLString(form, baseURL: URL(string: "https://evil.example/login")); await wait(1.2)
+                h.refreshAccounts(); print("7 autre site, comptes proposés :", h.accounts.count)
+                for a in PortalVault.list(host: host) { PortalVault.forget(host: a.host, user: a.user) }
+                print("8 nettoyé :", PortalVault.list(host: host).count)
+                UserDefaults.standard.removeObject(forKey: "vaultTouch"); exit(0)
             }
             return
         }

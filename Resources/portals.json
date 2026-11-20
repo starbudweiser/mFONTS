@@ -1,9 +1,9 @@
 {
-  "version": 1,
-  "updated": "2026-11-20",
+  "version": 2,
+  "updated": "2026-11-21",
   "portals": [
     { "id": "google-fonts", "name": "Google Fonts", "url": "https://fonts.google.com", "kind": "api", "license": "ofl" },
-    { "id": "fontsource", "name": "Fontsource", "url": "https://fontsource.org/fonts", "kind": "api", "license": "ofl" },
+    { "id": "fontsource", "name": "Fontsource", "url": "https://fontsource.org", "kind": "api", "license": "ofl" },
     { "id": "fontshare", "name": "Fontshare", "url": "https://www.fontshare.com", "kind": "api", "license": "commercial" },
     { "id": "font-squirrel", "name": "Font Squirrel", "url": "https://www.fontsquirrel.com", "kind": "web", "license": "commercial" },
     { "id": "open-foundry", "name": "Open Foundry", "url": "https://open-foundry.com", "kind": "web", "license": "ofl" },

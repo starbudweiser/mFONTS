@@ -13,24 +13,100 @@ final class WebHandle: ObservableObject {
     @Published var canBack = false
     @Published var canForward = false
     @Published var address = ""
+    // Identifiants (Trousseau)
+    @Published var hasForm = false                       // la page affiche un formulaire de mot de passe
+    @Published var accounts: [VaultAccount] = []         // comptes enregistrés pour le site affiché
+    @Published var fillHidden = false
+    @Published var pending: PendingLogin?                // identifiant capté, en attente d'un clic sur « Enregistrer »
+    var candidate: PendingLogin?
+    var portalName = ""
     var bag = Set<AnyCancellable>()
+
+    struct PendingLogin { let host: String, user: String, pass: String }
+
+    var pageHost: String? {
+        guard let u = web?.url, u.scheme == "https", let h = u.host else { return nil }
+        return PortalVault.normal(h)
+    }
+
     func attach(_ w: WKWebView) {
-        web = w
+        bag.removeAll(); web = w; hasForm = false; accounts = []; pending = nil; candidate = nil; fillHidden = false
         w.publisher(for: \.canGoBack).receive(on: DispatchQueue.main).sink { [weak self] in self?.canBack = $0 }.store(in: &bag)
         w.publisher(for: \.canGoForward).receive(on: DispatchQueue.main).sink { [weak self] in self?.canForward = $0 }.store(in: &bag)
-        w.publisher(for: \.url).receive(on: DispatchQueue.main).sink { [weak self] in self?.address = $0?.host?.replacingOccurrences(of: "www.", with: "") ?? "" }.store(in: &bag)
+        w.publisher(for: \.url).receive(on: DispatchQueue.main).sink { [weak self] in
+            self?.address = $0?.host?.replacingOccurrences(of: "www.", with: "") ?? ""
+            self?.refreshAccounts()
+        }.store(in: &bag)
+    }
+
+    func refreshAccounts() { accounts = pageHost.map { PortalVault.list(host: $0) } ?? [] }
+
+    /// Message du script de la page (formulaire présent ou absent, envoi d'un identifiant).
+    func formChanged(_ has: Bool) {
+        let was = hasForm; hasForm = has
+        if has { if !was { fillHidden = false }; refreshAccounts() }
+        if let c = candidate {
+            if c.host != pageHost { candidate = nil }
+            else if !has { candidate = nil; offer(c) }          // le formulaire a disparu : la connexion a réussi
+            else if !was { candidate = nil }                    // page rechargée avec le formulaire : échec probable
+        }
+    }
+    func submitted(user: String, pass: String) { if let h = pageHost { candidate = PendingLogin(host: h, user: user, pass: pass) } }
+    private func offer(_ c: PendingLogin) {
+        guard Prefs.vaultOffer, !PortalVault.never.contains(c.host), !PortalVault.list(host: c.host).contains(where: { $0.user == c.user }) else { return }
+        pending = c
+    }
+    func savePending() {
+        guard let c = pending else { return }
+        PortalVault.save(host: c.host, user: c.user, password: c.pass, label: "mFONTS — " + (portalName.isEmpty ? c.host : portalName))
+        pending = nil; refreshAccounts()
+    }
+    func dismissPending(never: Bool = false) { if never, let c = pending { PortalVault.never.insert(c.host) }; pending = nil }
+
+    /// Bouton de secours : capte les valeurs saisies maintenant (sites à connexion sans envoi de formulaire).
+    func saveManually() {
+        guard let w = web, pageHost != nil else { return }
+        w.callAsyncJavaScript("return window.__mfGrab ? window.__mfGrab() : null", arguments: [:], in: nil, in: .defaultClient) { [weak self] r in
+            guard case .success(let v) = r, let d = v as? [String: Any], let p = d["pass"] as? String, !p.isEmpty, let h = self?.pageHost else { return }
+            DispatchQueue.main.async { self?.pending = PendingLogin(host: h, user: d["user"] as? String ?? "", pass: p) }
+        }
+    }
+
+    func fill(_ a: VaultAccount) {
+        guard let w = web, a.host == pageHost else { return }
+        fillHidden = true
+        Task {
+            guard let pw = await PortalVault.password(host: a.host, user: a.user, reason: L.t("vault.auth", a.host)) else { return }
+            _ = try? await w.callAsyncJavaScript("return window.__mfFill ? window.__mfFill(u, p) : false", arguments: ["u": a.user, "p": pw], in: nil, contentWorld: .defaultClient)
+        }
+    }
+}
+
+/// Reçoit les messages du script d'identifiants : cadre principal, https, hôte identique à celui de la page.
+@MainActor
+final class CredHandler: NSObject, WKScriptMessageHandler {
+    weak var handle: WebHandle?
+    init(_ h: WebHandle) { handle = h }
+    func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {
+        guard m.frameInfo.isMainFrame, let wv = m.webView, wv.url?.scheme == "https", m.frameInfo.securityOrigin.host == wv.url?.host,
+              let d = m.body as? [String: Any], let kind = d["kind"] as? String else { return }
+        if kind == "form" { handle?.formChanged(d["has"] as? Bool ?? false) }
+        else if kind == "submit", let p = d["pass"] as? String { handle?.submitted(user: d["user"] as? String ?? "", pass: p) }
     }
 }
 
 struct PortalWebView: NSViewRepresentable {
     let url: URL
+    let portalID: String
     let handle: WebHandle
     let onFile: (URL, String) -> Void
 
     func makeCoordinator() -> Coord { Coord(onFile) }
     func makeNSView(context: Context) -> WKWebView {
         let cfg = WKWebViewConfiguration()
-        cfg.websiteDataStore = .nonPersistent()          // aucun cookie ni mot de passe partagé avec d'autres navigateurs
+        cfg.websiteDataStore = PortalSession.store(portalID)     // isolé par défaut ; session conservée seulement si le portail le demande
+        cfg.userContentController.addUserScript(WKUserScript(source: CredentialScript.source, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
+        cfg.userContentController.add(CredHandler(handle), contentWorld: .defaultClient, name: "mfCred")
         let w = WKWebView(frame: .zero, configuration: cfg)
         w.navigationDelegate = context.coordinator; w.uiDelegate = context.coordinator
         w.allowsBackForwardNavigationGestures = true
@@ -219,13 +295,11 @@ struct FindDrawer: View {
 
     var webTab: some View {
         VStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(portals.portals) { p in
-                        Button { portal = p; webStarted = true } label: { chip(p.name, on: portal?.id == p.id) }.buttonStyle(.plain)
-                    }
-                }.padding(.horizontal, 16)
-            }.frame(height: 30).padding(.bottom, 8)
+            FlowLayout(spacing: 6) {
+                ForEach(portals.portals) { p in
+                    Button { portal = p; webStarted = true } label: { chip(p.name, on: portal?.id == p.id) }.buttonStyle(.plain)
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.bottom, 8)
             HStack(spacing: 8) {
                 navButton("chevron.left", web.canBack) { web.web?.goBack() }
                 navButton("chevron.right", web.canForward) { web.web?.goForward() }
@@ -233,27 +307,68 @@ struct FindDrawer: View {
                 HStack(spacing: 6) { Image(systemName: "lock.fill").font(.system(size: 10)); Text(web.address.isEmpty ? (portal?.host ?? "") : web.address).lineLimit(1); Spacer()
                     if let p = portal { Text(L.t(p.licenseKey)).font(.system(size: 11)).foregroundStyle(p.license == "ofl" || p.license == "commercial" ? Theme.ok : Color.orange) } }
                     .font(.system(size: 12)).foregroundStyle(Theme.t2).padding(.horizontal, 10).padding(.vertical, 6).background(Theme.ctl, in: RoundedRectangle(cornerRadius: Theme.r))
+                if web.hasForm {
+                    Button { if web.accounts.isEmpty { web.saveManually() } else { web.fillHidden = false } } label: {
+                        HStack(spacing: 5) { Image(systemName: "key.fill"); if !web.accounts.isEmpty { Text("\(web.accounts.count)").font(.system(size: 11, weight: .semibold)) } }
+                            .font(.system(size: 12)).foregroundStyle(web.accounts.isEmpty ? Theme.t2 : Theme.ok).padding(.horizontal, 9).frame(height: 28)
+                            .background(web.accounts.isEmpty ? Theme.ctl : Theme.ok.opacity(0.14), in: RoundedRectangle(cornerRadius: Theme.r))
+                    }.buttonStyle(.plain).help(L.t(web.accounts.isEmpty ? "vault.manual" : "vault.key.help"))
+                }
             }.padding(.horizontal, 16).padding(.bottom, 8)
             ZStack(alignment: .bottom) {
                 if webStarted, let p = portal, let u = URL(string: p.url) {
-                    PortalWebView(url: u, handle: web) { file, host in dl.caught = (file, host) }
+                    PortalWebView(url: u, portalID: p.id, handle: web) { file, host in dl.caught = (file, host) }
+                        .id(p.id + (PortalSession.keeps(p.id) ? "-k" : ""))
                         .clipShape(RoundedRectangle(cornerRadius: Theme.r))
+                        .onAppear { web.portalName = p.name }
                 } else { Color.clear }
-                if let c = dl.caught {
-                    HStack(spacing: 12) {
-                        Image(systemName: "arrow.down.circle.fill").font(.system(size: 22)).foregroundStyle(Theme.acc)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(L.t("find.web.detected", c.file.lastPathComponent)).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                            Text(L.t("find.web.license")).font(.system(size: 11.5)).foregroundStyle(Theme.t2)
-                        }
-                        Spacer()
-                        Button(L.t("find.web.ignore")) { dl.caught = nil }.fixedSize()
-                        Button(L.t("find.web.install")) { dl.installCaught(c.file, host: c.host); tab = 2 }.buttonStyle(.borderedProminent).tint(Theme.acc).fixedSize()
-                    }.padding(14).background(Theme.card, in: RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line)).padding(12)
+                VStack(spacing: 8) {
+                    if let c = web.pending { saveBanner(c) }
+                    else if web.hasForm, !web.fillHidden, let a = web.accounts.first { fillBanner(a) }
+                    if let c = dl.caught { caughtBanner(c) }
                 }
             }.padding(.horizontal, 16).frame(maxHeight: .infinity)
             Text(L.t("find.web.note")).font(.system(size: 11.5)).foregroundStyle(Theme.t2).padding(.horizontal, 16).padding(.vertical, 8)
         }
+    }
+
+    func keyBanner<C: View>(_ title: String, _ sub: String, @ViewBuilder _ buttons: () -> C) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "key.fill").font(.system(size: 20)).foregroundStyle(Theme.acc)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                Text(sub).font(.system(size: 11.5)).foregroundStyle(Theme.t2).lineLimit(1)
+            }
+            Spacer()
+            buttons()
+        }.padding(14).background(Theme.card, in: RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line)).padding(.horizontal, 12)
+    }
+    func saveBanner(_ c: WebHandle.PendingLogin) -> some View {
+        keyBanner(L.t("vault.save.title"), c.host + (c.user.isEmpty ? "" : " · " + c.user) + (Prefs.vaultTouch ? " · " + L.t("vault.touchBadge") : "")) {
+            Button(L.t("vault.never")) { web.dismissPending(never: true) }.fixedSize()
+            Button(L.t("vault.later")) { web.dismissPending() }.fixedSize()
+            Button(L.t("vault.save")) { web.savePending() }.buttonStyle(.borderedProminent).tint(Theme.acc).fixedSize()
+        }
+    }
+    func fillBanner(_ a: VaultAccount) -> some View {
+        keyBanner(L.t("vault.fill.title", a.user), L.t("vault.fill.sub", a.host)) {
+            Button { web.fillHidden = true } label: { Image(systemName: "xmark").foregroundStyle(Theme.t2) }.buttonStyle(.plain)
+            if web.accounts.count > 1 {
+                Menu(L.t("vault.fill")) { ForEach(web.accounts) { x in Button(x.user) { web.fill(x) } } }.fixedSize()
+            } else { Button(L.t("vault.fill")) { web.fill(a) }.buttonStyle(.borderedProminent).tint(Theme.acc).fixedSize() }
+        }
+    }
+    func caughtBanner(_ c: (file: URL, host: String)) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.down.circle.fill").font(.system(size: 22)).foregroundStyle(Theme.acc)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L.t("find.web.detected", c.file.lastPathComponent)).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                Text(L.t("find.web.license")).font(.system(size: 11.5)).foregroundStyle(Theme.t2)
+            }
+            Spacer()
+            Button(L.t("find.web.ignore")) { dl.caught = nil }.fixedSize()
+            Button(L.t("find.web.install")) { dl.installCaught(c.file, host: c.host); tab = 2 }.buttonStyle(.borderedProminent).tint(Theme.acc).fixedSize()
+        }.padding(14).background(Theme.card, in: RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line)).padding(.horizontal, 12)
     }
 
     func navButton(_ icon: String, _ enabled: Bool, _ action: @escaping () -> Void) -> some View {
@@ -346,5 +461,27 @@ struct RemoteCard: View {
         .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.r))
         .overlay(RoundedRectangle(cornerRadius: Theme.r).stroke(Theme.line, lineWidth: 1))
         .task { font = await RemotePreview.font(for: f, size: 26) }
+    }
+}
+
+/// Disposition qui passe à la ligne : tous les portails restent visibles et cliquables.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        arrange(proposal.width ?? 600, subviews).size
+    }
+    func placeSubviews(in b: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let r = arrange(b.width, subviews)
+        for (i, f) in r.frames.enumerated() { subviews[i].place(at: CGPoint(x: b.minX + f.minX, y: b.minY + f.minY), proposal: .unspecified) }
+    }
+    private func arrange(_ w: CGFloat, _ subs: Subviews) -> (size: CGSize, frames: [CGRect]) {
+        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0, maxW: CGFloat = 0, fr: [CGRect] = []
+        for v in subs {
+            let s = v.sizeThatFits(.unspecified)
+            if x > 0, x + s.width > w { x = 0; y += rowH + spacing; rowH = 0 }
+            fr.append(CGRect(x: x, y: y, width: s.width, height: s.height))
+            x += s.width + spacing; rowH = max(rowH, s.height); maxW = max(maxW, x - spacing)
+        }
+        return (CGSize(width: maxW, height: y + rowH), fr)
     }
 }

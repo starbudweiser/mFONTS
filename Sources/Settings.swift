@@ -64,6 +64,10 @@ struct SettingsView: View {
     @AppStorage("src_fontsource") var srcFS = true
     @AppStorage("src_fontshare") var srcFSH = true
     @AppStorage("src_squirrel") var srcSQ = false
+    @AppStorage("vaultOffer") var vaultOffer = true
+    @AppStorage("vaultTouch") var vaultTouch = true
+    @State var vault = PortalVault.list()
+    @State var keeps: [String: Bool] = [:]
 
     var body: some View {
         HStack(spacing: 0) {
@@ -90,6 +94,7 @@ struct SettingsView: View {
         .tint(Theme.acc)
         .frame(width: 780, height: 600)
         .onChange(of: presence) { _, _ in AppDelegate.applyPresence() }
+        .onAppear { vault = PortalVault.list() }
     }
 
     var content: some View {
@@ -149,6 +154,38 @@ struct SettingsView: View {
                 }
             }
             Text(portals.portals.map(\.name).joined(separator: " · ")).font(.system(size: 11.5)).foregroundStyle(Theme.t2).fixedSize(horizontal: false, vertical: true)
+            SCard(L.t("vault.title")) {
+                if vault.isEmpty {
+                    SRow(L.t("vault.none"), help: L.t("vault.none.help"), divider: false) {
+                        Button(L.t("vault.open")) { openKeychain() }.fixedSize()
+                    }
+                } else {
+                    ForEach(Array(vault.enumerated()), id: \.element.id) { i, a in
+                        SRow(a.label.replacingOccurrences(of: "mFONTS — ", with: ""), help: a.user + (a.date.map { " · " + L.t("vault.saved", $0.formatted(date: .abbreviated, time: .omitted)) } ?? ""), divider: true) {
+                            HStack(spacing: 10) {
+                                Label(L.t("vault.badge"), systemImage: "key.fill").font(.system(size: 11.5)).foregroundStyle(Theme.ok)
+                                Button(L.t("vault.forget")) { PortalVault.forget(host: a.host, user: a.user); vault = PortalVault.list() }.fixedSize()
+                            }
+                        }
+                    }
+                    SRow(L.t("vault.none.help"), divider: false) { Button(L.t("vault.open")) { openKeychain() }.fixedSize() }
+                }
+            }
+            SCard(L.t("vault.opts")) {
+                SRow(L.t("vault.offer"), help: L.t("vault.offer.help")) { Toggle("", isOn: $vaultOffer).labelsHidden().toggleStyle(.switch) }
+                SRow(L.t("vault.touch"), help: L.t("vault.touch.help"), divider: false) { Toggle("", isOn: $vaultTouch).labelsHidden().toggleStyle(.switch) }
+            }
+            SCard(L.t("vault.sessions")) {
+                ForEach(Array(portals.portals.enumerated()), id: \.element.id) { i, p in
+                    let on = keeps[p.id] ?? PortalSession.keeps(p.id)
+                    SRow(p.name, help: L.t(on ? "vault.session.on" : "vault.session.off"), divider: i < portals.portals.count - 1) {
+                        HStack(spacing: 10) {
+                            if on { Button(L.t("vault.clear")) { PortalSession.clear(p.id) }.fixedSize() }
+                            Toggle("", isOn: Binding(get: { on }, set: { v in keeps[p.id] = v; PortalSession.setKeeps(p.id, v) })).labelsHidden().toggleStyle(.switch)
+                        }
+                    }
+                }
+            }
         case .display:
             SCard(L.t("set.display")) {
                 SRow(L.t("set.sample"), help: L.t("set.sample.help")) {
@@ -174,6 +211,8 @@ struct SettingsView: View {
             }
         }
     }
+
+    func openKeychain() { NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Keychain Access.app")) }
 
     var portalStatus: String {
         switch portals.state {

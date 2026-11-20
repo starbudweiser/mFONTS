@@ -58,6 +58,9 @@ struct MainView: View {
     @AppStorage("showFilters") var showFilters = true
     @AppStorage("showInfo") var showInfo = true
     @State var showImport = false
+    @AppStorage("integrationsAsked") var integrationsAsked = false
+    @State var showWelcome = false
+    @State var welcomeItems: [Integration] = []
     @State var searching = false
     @FocusState var searchFocus: Bool
 
@@ -86,6 +89,7 @@ struct MainView: View {
             VStack(spacing: 0) {
                 toolbar
                 if showFilters { FilterBar() }
+                if cat.selection == .auto { AutoBar() }
                 HStack(spacing: 12) {
                     FontGrid(sample: sample, grid: grid, scale: scale)
                     if showInfo, let name = cat.selectedFamily { InspectorView(family: name, sample: sample).frame(minWidth: 280, idealWidth: 320, maxWidth: 360) }
@@ -108,6 +112,12 @@ struct MainView: View {
         .ignoresSafeArea(.container, edges: .top)
         .frame(width: 1180, height: 767)
         .sheet(isPresented: $showImport) { ImportView(isPresented: $showImport) }
+        .sheet(isPresented: $showWelcome) { IntegrationsWelcome(isPresented: $showWelcome, items: welcomeItems) }
+        .onAppear {
+            guard !integrationsAsked else { return }
+            let found = Integrations.detect()
+            if found.isEmpty { integrationsAsked = true } else { welcomeItems = found; DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { showWelcome = true } }
+        }
         .alert("mFONTS", isPresented: Binding(get: { cat.lastError != nil }, set: { if !$0 { cat.lastError = nil } })) {
             Button(L.t("btn.ok")) {}
         } message: { Text(cat.lastError ?? "") }
@@ -226,6 +236,18 @@ struct FilterBar: View {
     }
 }
 
+struct AutoBar: View {
+    @ObservedObject var cat = Catalog.shared
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "sparkles").foregroundStyle(Theme.acc)
+            Text(L.t("auto.bar", cat.autoFonts.count)).font(.system(size: 13)).foregroundStyle(Theme.t2).lineLimit(1)
+            Spacer()
+            Button(L.t("auto.clear")) { cat.deactivateAuto() }.disabled(cat.autoFonts.isEmpty).fixedSize()
+        }.padding(.horizontal, 14).frame(height: 40)
+    }
+}
+
 // MARK: barre latérale
 
 struct SidebarView: View {
@@ -275,6 +297,7 @@ struct SidebarView: View {
                 }
                 head(L.t("side.sets"))
                 row(L.t("side.active"), .active, count: "act", icon: "checkmark.circle")
+                row(L.t("side.auto"), .auto, count: "aut", icon: "sparkles")
                 row(L.t("side.inactive"), .inactive, count: "ina", icon: "circle")
                 head(L.t("side.collections")) { if let n = Prompt.text(L.t("coll.new"), L.t("coll.name")) { cat.createCollection(n) } }
                 ForEach(cat.collections) { c in
@@ -314,6 +337,16 @@ struct FontGrid: View {
     let sample: String; let grid: Bool; let scale: Double
 
     var body: some View {
+        if cat.visible.isEmpty && cat.selection == .auto {
+            VStack(spacing: 8) {
+                Image(systemName: "sparkles").font(.system(size: 28)).foregroundStyle(Theme.t2)
+                Text(L.t("auto.empty.title")).font(.system(size: 14, weight: .semibold))
+                Text(L.t("auto.empty.text")).font(.system(size: 12.5)).foregroundStyle(Theme.t2).multilineTextAlignment(.center).frame(maxWidth: 420)
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else { list }
+    }
+
+    var list: some View {
         ScrollView {
             if grid {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 300, maximum: .infinity), spacing: 10)], spacing: 10) {
@@ -339,7 +372,7 @@ struct FamilyCard: View {
                 Circle().strokeBorder(family.enabledCount > 0 ? Theme.ok : Theme.t2, lineWidth: 1.5).background(Circle().fill(family.allEnabled ? Theme.ok : .clear)).frame(width: 8, height: 8)
                     .padding(4).contentShape(Rectangle()).onTapGesture { cat.setActive(family.fonts, on: !family.allEnabled) }
                     .help(family.allEnabled ? L.t("ctx.deactivate") : L.t("ctx.activate"))
-                Text(family.id + " · " + (family.fonts.count == 1 ? L.t("card.style") : L.t("card.styles", family.fonts.count))).lineLimit(1)
+                Text(family.id + " · " + (family.fonts.count == 1 ? L.t("card.style") : L.t("card.styles", family.fonts.count)) + (cat.selection == .auto ? (cat.autoFonts[rep.id].map { " · " + $0.app } ?? "") : "")).lineLimit(1)
                 if family.starred { Image(systemName: "star.fill").foregroundStyle(.yellow).font(.system(size: 10)) }
                 Spacer()
             }.font(.system(size: 12)).foregroundStyle(Theme.t2)
@@ -540,6 +573,7 @@ struct SettingsView: View {
     @AppStorage("persistentActivation") var persistent = true
     @AppStorage("presence") var presence = "both"
     @AppStorage("autoUpdate") var autoUpdate = true
+    @AppStorage("autoNotify") var autoNotify = "missing"
     @AppStorage("previewText") var previewText = ""
     @AppStorage("previewScale") var scale = 100.0
     @ObservedObject var up = Updater.shared
@@ -547,6 +581,16 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section(L.t("set.activation")) { Toggle(L.t("set.persistent"), isOn: $persistent).listRowBackground(Theme.card) }
+            Section(L.t("auto.set.title")) {
+                let apps = Integrations.detect()
+                if apps.isEmpty { Text(L.t("int.none")).font(.system(size: 12)).foregroundStyle(.secondary).listRowBackground(Theme.card) }
+                else { IntegrationsList(items: apps).listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
+                Text(L.t("auto.set.watch.help")).font(.system(size: 12)).foregroundStyle(.secondary).listRowBackground(Theme.card)
+                Picker(L.t("auto.set.notify"), selection: $autoNotify) {
+                    Text(L.t("auto.notify.missing")).tag("missing"); Text(L.t("auto.notify.always")).tag("always"); Text(L.t("auto.notify.never")).tag("never")
+                }.listRowBackground(Theme.card)
+                Text(L.t("auto.set.open.help")).font(.system(size: 12)).foregroundStyle(.secondary).listRowBackground(Theme.card)
+            }
             Section(L.t("set.presence")) {
                 Picker("", selection: $presence) {
                     Text(L.t("presence.both")).tag("both"); Text(L.t("presence.dock")).tag("dock"); Text(L.t("presence.menubar")).tag("menubar")
@@ -566,7 +610,7 @@ struct SettingsView: View {
                 Text(statusText).font(.system(size: 12)).foregroundStyle(.secondary).listRowBackground(Theme.card)
             }
         }
-        .formStyle(.grouped).scrollContentBackground(.hidden).background(Theme.bg).tint(Theme.acc).frame(width: 460, height: 640)
+        .formStyle(.grouped).scrollContentBackground(.hidden).background(Theme.bg).tint(Theme.acc).frame(width: 460, height: 800)
         .onChange(of: presence) { _, _ in AppDelegate.applyPresence() }
     }
 

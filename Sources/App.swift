@@ -19,15 +19,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ n: Notification) {
         Self.shared = self
         if CommandLine.arguments.contains("--selftest-import") { selfTest(); return }
+        if let i = CommandLine.arguments.firstIndex(of: "--selftest-doc"), i + 1 < CommandLine.arguments.count { selfTestDoc(CommandLine.arguments[i + 1]); return }
         buildMainMenu()
         makeWindow()
         Self.applyPresence()
+        AutoActivator.shared.applyWatch()
         timer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { _ in Task { @MainActor in Updater.shared.tick() } }
         Task { @MainActor in Updater.shared.tick() }
         window?.centerOnScreen()
         window?.present()
     }
 
+    func application(_ app: NSApplication, open urls: [URL]) { AutoActivator.shared.openViaMFonts(urls) }
+    @objc func openDocument() { AutoActivator.shared.chooseDocument() }
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ app: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showMain(); return true }
 
@@ -82,6 +86,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         app.addItem(.separator())
         app.addItem(withTitle: L.t("menu.quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = app
+        let fileItem = NSMenuItem(); main.addItem(fileItem)
+        let file = NSMenu(title: L.t("menu.file"))
+        file.addItem(withTitle: L.t("menu.openDoc"), action: #selector(openDocument), keyEquivalent: "o").target = self
+        fileItem.submenu = file
         let editItem = NSMenuItem(); main.addItem(editItem)
         let edit = NSMenu(title: "Edit")
         edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
@@ -154,6 +162,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 }
 
 extension AppDelegate {
+    /// Essai sans interface : analyse un document et affiche les polices trouvées dans le catalogue.
+    func selfTestDoc(_ path: String) {
+        let c = Catalog.shared
+        let idx = FontIndex(c.fonts)
+        let t0 = Date()
+        let r = DocFonts.resolve(URL(fileURLWithPath: path), index: idx, systemNames: DocFonts.systemFontNames())
+        let names = r.ids.compactMap { id in c.fonts.first { $0.id == id }?.ps }
+        print("\(path)\n  trouvées (\(names.count)) : \(names.prefix(25).joined(separator: ", "))\n  introuvables : \(r.missing.prefix(15))\n  durée : \(String(format: "%.1f", Date().timeIntervalSince(t0))) s")
+        exit(0)
+    }
+
     /// Essai sans interface : importe les bibliothèques Right Fonts détectées, affiche le rapport puis quitte (sans activation).
     func selfTest() {
         guard let folder = RightFontImporter.defaultFolder() else { print("aucun dossier Right Fonts"); exit(1) }

@@ -42,7 +42,7 @@ struct Family: Identifiable {
 }
 
 enum Sidebar: Hashable {
-    case all, favorites, active, inactive, duplicates, recent
+    case all, favorites, active, inactive, duplicates, recent, auto
     case library(String), collection(String), tag(String)
 }
 
@@ -88,6 +88,7 @@ final class Catalog: ObservableObject {
     private(set) var collFonts: [String: Set<String>] = [:]
     private(set) var tagFonts: [String: Set<String>] = [:]
     private var dupPS: Set<String> = []
+    private(set) var autoFonts: [String: (doc: String, app: String, at: Double)] = [:]
     private var db: DB!
 
     static var dataDir: URL {
@@ -112,9 +113,11 @@ final class Catalog: ObservableObject {
                 "CREATE TABLE IF NOT EXISTS fontCollection(font TEXT, coll TEXT, PRIMARY KEY(font, coll))",
                 "CREATE TABLE IF NOT EXISTS tag(id TEXT PRIMARY KEY, name TEXT)",
                 "CREATE TABLE IF NOT EXISTS fontTag(font TEXT, tag TEXT, PRIMARY KEY(font, tag))",
+                "CREATE TABLE IF NOT EXISTS autoActive(font TEXT PRIMARY KEY, doc TEXT, app TEXT, at REAL)",
             ] { try db.exec(sql) }
             try? db.exec("ALTER TABLE font ADD COLUMN cls TEXT DEFAULT ''")
             if !UserDefaults.standard.bool(forKey: "clsV2") { try? db.exec("UPDATE font SET cls=''"); UserDefaults.standard.set(true, forKey: "clsV2") }
+            expireAutoActive()
             reload()
             classify()
         } catch { lastError = error.localizedDescription }
@@ -138,6 +141,7 @@ final class Catalog: ObservableObject {
         tags = t
         collFonts = [:]; try? db.query("SELECT font,coll FROM fontCollection") { collFonts[$0.text(1), default: []].insert($0.text(0)) }
         tagFonts = [:]; try? db.query("SELECT font,tag FROM fontTag") { tagFonts[$0.text(1), default: []].insert($0.text(0)) }
+        autoFonts = [:]; try? db.query("SELECT font,doc,app,at FROM autoActive") { autoFonts[$0.text(0)] = ($0.text(1), $0.text(2), $0.double(3)) }
         var seen: [String: Int] = [:]; for x in f { seen[x.ps, default: 0] += 1 }
         dupPS = Set(seen.filter { $0.value > 1 }.keys)
         refresh()
@@ -151,6 +155,7 @@ final class Catalog: ObservableObject {
         case .inactive: return !f.enabled
         case .duplicates: return dupPS.contains(f.ps)
         case .recent: return f.lastUsed > 0
+        case .auto: return autoFonts[f.id] != nil
         case .library(let id): return f.lib == id
         case .collection(let id): return collFonts[id]?.contains(f.id) ?? false
         case .tag(let id): return tagFonts[id]?.contains(f.id) ?? false
@@ -181,12 +186,13 @@ final class Catalog: ObservableObject {
         case .recent: fam.sort { (($0.fonts.map(\.lastUsed).max() ?? 0) > ($1.fonts.map(\.lastUsed).max() ?? 0)) == sortAsc }
         }
         visible = fam
-        var n: [String: Int] = ["all": fonts.count, "fav": 0, "act": 0, "dup": 0, "rec": 0, "ina": 0]
+        var n: [String: Int] = ["all": fonts.count, "fav": 0, "act": 0, "dup": 0, "rec": 0, "ina": 0, "aut": 0]
         for f in fonts {
             n["lib:" + f.lib, default: 0] += 1
             if f.starred { n["fav", default: 0] += 1 }
             if f.enabled { n["act", default: 0] += 1 } else { n["ina", default: 0] += 1 }
             if f.lastUsed > 0 { n["rec", default: 0] += 1 }
+            if autoFonts[f.id] != nil { n["aut", default: 0] += 1 }
             if dupPS.contains(f.ps) { n["dup", default: 0] += 1 }
         }
         for (k, v) in collFonts { n["col:" + k] = v.count }
@@ -265,13 +271,14 @@ final class Catalog: ObservableObject {
     /// Progression d'une activation en lot : (faites, total, activation ?).
     @Published private(set) var activating: (done: Int, total: Int, on: Bool)?
 
-    func setActive(_ list: [FontRec], on: Bool) {
+    func setActive(_ list: [FontRec], on: Bool, session: Bool = false, auto: (doc: String, app: String)? = nil) {
         let todo = list.filter { $0.enabled != on }
-        guard !todo.isEmpty, activating == nil else { return }
-        let persistent = Prefs.persistent
+        guard !todo.isEmpty else { return }
+        if activating != nil { DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.setActive(list, on: on, session: session, auto: auto) }; return }
+        let persistent = session ? false : Prefs.persistent
         // Petit lot (double-clic, famille) : immédiat. Gros lot (bibliothèque, collection) : en tâche de fond, avec progression.
         if todo.count <= 40 {
-            finishActivation(todo.map { ($0, Activation.set($0, on: on, persistent: persistent)) }, on: on)
+            finishActivation(todo.map { ($0, Activation.set($0, on: on, persistent: persistent)) }, on: on, auto: auto)
             return
         }
         activating = (0, todo.count, on)
@@ -283,18 +290,55 @@ final class Catalog: ObservableObject {
                 if i % 25 == 24 { let n = i + 1; await MainActor.run { self.activating = (n, todo.count, on) } }
             }
             let result = res
-            await MainActor.run { self.activating = nil; self.finishActivation(result, on: on) }
+            await MainActor.run { self.activating = nil; self.finishActivation(result, on: on, auto: auto) }
         }
     }
 
-    private func finishActivation(_ res: [(FontRec, Bool)], on: Bool) {
+    private func finishActivation(_ res: [(FontRec, Bool)], on: Bool, auto: (doc: String, app: String)?) {
         let now = Date().timeIntervalSince1970
         try? db.transaction {
             for (f, ok) in res where ok { try? db.exec("UPDATE font SET enabled=?, lastUsed=? WHERE id=?", [on, on ? now : f.lastUsed, f.id]) }
         }
+        if on, let auto { try? db.transaction { for (f, ok) in res where ok { try? db.exec("INSERT OR REPLACE INTO autoActive(font,doc,app,at) VALUES(?,?,?,?)", [f.id, auto.doc, auto.app, now]) } } }
+        if !on { try? db.transaction { for (f, ok) in res where ok { try? db.exec("DELETE FROM autoActive WHERE font=?", [f.id]) } } }
         let failed = res.filter { !$0.1 }.count
         if failed > 0 { lastError = L.t("err.activation", failed) }
         reload()
+    }
+
+    // MARK: activation à la demande
+
+    /// Au lancement : les polices activées automatiquement lors d'une session précédente (avant le dernier démarrage du Mac) sont oubliées.
+    private func expireAutoActive() {
+        var tv = timeval(); var size = MemoryLayout<timeval>.size; var mib: [Int32] = [CTL_KERN, KERN_BOOTTIME]
+        guard sysctl(&mib, 2, &tv, &size, nil, 0) == 0 else { return }
+        let boot = Double(tv.tv_sec)
+        var old: [String] = []
+        try? db.query("SELECT font FROM autoActive WHERE at < ?", [boot]) { old.append($0.text(0)) }
+        guard !old.isEmpty else { return }
+        try? db.transaction { for id in old { try? db.exec("DELETE FROM autoActive WHERE font=?", [id]); try? db.exec("UPDATE font SET enabled=0 WHERE id=?", [id]) } }
+    }
+
+    /// Analyse un document et active, pour la session, les polices du catalogue qu'il demande.
+    /// - Returns: nombre de polices activées, noms introuvables.
+    func activateFor(document url: URL, app: String, completion: @escaping (_ activated: Int, _ missing: [String]) -> Void) {
+        let index = FontIndex(fonts)
+        let sys = DocFonts.systemFontNames()
+        Task.detached(priority: .userInitiated) {
+            let r = DocFonts.resolve(url, index: index, systemNames: sys)
+            await MainActor.run {
+                let ids = Set(r.ids)
+                let todo = self.fonts.filter { ids.contains($0.id) && !$0.enabled }
+                if !todo.isEmpty { self.setActive(todo, on: true, session: true, auto: (url.lastPathComponent, app)) }
+                completion(todo.count, r.missing)
+            }
+        }
+    }
+
+    func deactivateAuto() {
+        let ids = Set(autoFonts.keys)
+        setActive(fonts.filter { ids.contains($0.id) && $0.enabled }, on: false)
+        try? db.exec("DELETE FROM autoActive"); reload()
     }
 
     func deactivateAll() { setActive(fonts.filter(\.enabled), on: false) }

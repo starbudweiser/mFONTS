@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ n: Notification) {
         Self.shared = self
         if CommandLine.arguments.contains("--selftest-import") { selfTest(); return }
+        DemoData.loadIfNeeded()
         if let i = CommandLine.arguments.firstIndex(of: "--selftest-settings"), i + 1 < CommandLine.arguments.count {
             let dir = CommandLine.arguments[i + 1]
             for t in SettingsTab.allCases {

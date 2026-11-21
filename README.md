@@ -12,3 +12,9 @@
 
 ## Build
 `./build_app.sh` (install locally) · `DEV=1 ./build_app.sh` (dev edition, bundle id `fr.stephan.mfonts.dev`). Design: `maquettes/`, architecture: `ARCHITECTURE.md`.
+
+## Support / Soutenir
+
+This app is free. If it is useful to you, you can support the project (optional, no reward expected): [GitHub Sponsors](https://github.com/sponsors/starbudweiser).
+
+Cette appli est gratuite. Si elle vous est utile, vous pouvez soutenir le projet (facultatif, sans contrepartie) : [GitHub Sponsors](https://github.com/sponsors/starbudweiser).
